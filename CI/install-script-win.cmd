@@ -8,6 +8,13 @@ if exist cef_binary_%CEF_VERSION%_windows64_minimal.zip (curl -kLO https://cdn-f
 7z x cef_binary_%CEF_VERSION%_windows64_minimal.zip -oCEF_64
 set DepsPath32=%CD%\dependencies2017\win32
 set DepsPath64=%CD%\dependencies2017\win64
+echo --------------------------------------------------
+echo DepsPath64:
+dir %DepsPath64%
+echo --------------------------------------------------
+echo DepsPath64\include:
+dir %DepsPath64%\include
+echo --------------------------------------------------
 set VLCPath=%CD%\vlc
 set QTDIR32=C:\QtDep\5.10.1\msvc2017
 set QTDIR64=C:\QtDep\5.10.1\msvc2017_64
