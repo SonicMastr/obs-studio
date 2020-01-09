@@ -829,7 +829,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_EnumeratePhysicalDevices(
 	return res;
 }
 
-bool isSharedTextureSupported(
+bool shared_tex_supported(
 	VkLayerInstanceDispatchTable *inst_disp, VkPhysicalDevice phy_device,
 	VkFormat imageFormat, VkImageUsageFlags imageUsage,
 	VkExternalMemoryPropertiesKHR *pExternalMemoryProperties)
@@ -1195,8 +1195,8 @@ OBS_CreateDevice(VkPhysicalDevice phy_device, const VkDeviceCreateInfo *info,
 	VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
 				  VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
-	if (!isSharedTextureSupported(inst_disp, phy_device, format, usage,
-				      &data->external_mem_props)) {
+	if (!shared_tex_supported(inst_disp, phy_device, format, usage,
+				  &data->external_mem_props)) {
 		hlog(" Vulkan CreateDevice : texture sharing is not supported\n");
 	}
 
