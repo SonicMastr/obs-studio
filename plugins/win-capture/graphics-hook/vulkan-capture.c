@@ -57,7 +57,7 @@ struct swap_data {
 
 struct vk_data {
 	VkLayerDispatchTable dispatch_table;
-	VkPhysicalDevice physical_device;
+	VkPhysicalDevice phy_device;
 	VkDevice device;
 	struct swap_data swaps[MAX_SWAPCHAIN_PER_DEVICE];
 
@@ -73,7 +73,8 @@ struct vk_data {
 	HWND dummy_hwnd;
 };
 
-static struct swap_data *get_swap_data(struct vk_data *data, VkSwapchainKHR swapchain)
+static struct swap_data *get_swap_data(struct vk_data *data,
+				       VkSwapchainKHR swapchain)
 {
 	for (int i = 0; i < MAX_SWAPCHAIN_PER_DEVICE; ++i) {
 		if (data->swaps[i].swap == swapchain) {
@@ -174,9 +175,7 @@ static void vk_remove_device(void *dev)
 	if (data->dxgi_swap)
 		IDXGISwapChain_Release(data->dxgi_swap);
 
-	if (idx > 0 &&
-	    idx < device_count -
-			    1) {
+	if (idx > 0 && idx < device_count - 1) {
 		devices[idx] = devices[device_count - 1];
 		memcpy(&device_table[idx], &device_table[device_count - 1],
 		       sizeof(struct vk_data));
@@ -196,14 +195,14 @@ struct vk_surf_data {
 
 struct vk_inst_data {
 	VkLayerInstanceDispatchTable dispatch_table;
-	uint32_t physical_device_count;
+	uint32_t phy_device_count;
 	VkPhysicalDevice *availablePhysicalDevices[MAX_PHYSICALDEVICE_COUNT];
 
 	struct vk_surf_data surfaces[MAX_SURFACE_PER_INSTANCE];
 };
 
 static struct vk_surf_data *FindSurfaceData(struct vk_inst_data *inst_data,
-				     VkSurfaceKHR surface)
+					    VkSurfaceKHR surface)
 {
 	int idx = MAX_SURFACE_PER_INSTANCE;
 	for (int i = 0; i < MAX_SURFACE_PER_INSTANCE; ++i) {
@@ -271,9 +270,7 @@ static void remove_instance(void *inst)
 	EnterCriticalSection(&mutex);
 	uint8_t idx = GetInstanceIndex(inst);
 
-	if (idx > 0 &&
-	    idx < inst_count -
-			    1) {
+	if (idx > 0 && idx < inst_count - 1) {
 		inst_keys[idx] = inst_keys[inst_count - 1];
 		memcpy(&inst_table[idx], &inst_table[inst_count - 1],
 		       sizeof(struct vk_inst_data));
@@ -406,8 +403,7 @@ static inline bool vk_shtex_init_d3d11_tex(struct vk_data *dev_data,
 	flog("OBS requesting %s texture format",
 	     vk_format_to_str(swpch_data->format));
 
-	desc.Format = vk_format_to_dxgi(
-		swpch_data->format);
+	desc.Format = vk_format_to_dxgi(swpch_data->format);
 	desc.SampleDesc.Count = 1;
 	desc.SampleDesc.Quality = 0;
 	desc.Usage = D3D11_USAGE_DEFAULT;
@@ -518,10 +514,10 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 	uint32_t mem_type_idx = 0;
 
 	VkLayerInstanceDispatchTable *inst_dispatch =
-		GetInstanceDispatchTable(TOKEY(data->physical_device));
+		GetInstanceDispatchTable(TOKEY(data->phy_device));
 
 	VkPhysicalDeviceMemoryProperties mem_props;
-	inst_dispatch->GetPhysicalDeviceMemoryProperties(data->physical_device,
+	inst_dispatch->GetPhysicalDeviceMemoryProperties(data->phy_device,
 							 &mem_props);
 
 	for (; mem_type_idx < mem_props.memoryTypeCount; mem_type_idx++) {
@@ -625,9 +621,9 @@ bool shutdown_vk_layer()
 	return true;
 }
 
-VK_LAYER_EXPORT VkResult VKAPI_CALL OBS_CreateInstance(
-	const VkInstanceCreateInfo *info,
-	const VkAllocationCallbacks *allocator, VkInstance *p_inst)
+VK_LAYER_EXPORT VkResult VKAPI_CALL
+OBS_CreateInstance(const VkInstanceCreateInfo *info,
+		   const VkAllocationCallbacks *allocator, VkInstance *p_inst)
 {
 	VkLayerInstanceCreateInfo *create_info =
 		(VkLayerInstanceCreateInfo *)info->pNext;
@@ -654,25 +650,25 @@ VK_LAYER_EXPORT VkResult VKAPI_CALL OBS_CreateInstance(
 		(PFN_vkCreateInstance)gpa(VK_NULL_HANDLE, "vkCreateInstance");
 
 	bool external_memory_capabilities_enabled = false;
-	bool get_physical_device_properties2_enabled = false;
+	bool get_phy_device_properties2_enabled = false;
 	for (uint32_t i = 0; i < info->enabledExtensionCount; ++i) {
 		external_memory_capabilities_enabled |=
 			(0 ==
 			 strcmp(info->ppEnabledExtensionNames[i],
 				VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME));
-		get_physical_device_properties2_enabled |=
+		get_phy_device_properties2_enabled |=
 			(0 ==
 			 strcmp(info->ppEnabledExtensionNames[i],
 				VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME));
 	}
 
 	if (!external_memory_capabilities_enabled ||
-	    !get_physical_device_properties2_enabled) {
+	    !get_phy_device_properties2_enabled) {
 		uint32_t count = info->enabledExtensionCount;
 		uint32_t newExtCount = info->enabledExtensionCount;
 
 		newExtCount += external_memory_capabilities_enabled ? 0 : 1;
-		newExtCount += get_physical_device_properties2_enabled ? 0 : 1;
+		newExtCount += get_phy_device_properties2_enabled ? 0 : 1;
 
 		const char **ext_names = (const char **)alloca(
 			sizeof(const char *) * newExtCount);
@@ -684,13 +680,12 @@ VK_LAYER_EXPORT VkResult VKAPI_CALL OBS_CreateInstance(
 			ext_names[count++] =
 				VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME;
 		}
-		if (!get_physical_device_properties2_enabled) {
+		if (!get_phy_device_properties2_enabled) {
 			ext_names[count++] =
 				VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME;
 		}
 		VkInstanceCreateInfo *create_info =
-			(VkInstanceCreateInfo
-				 *)(info);
+			(VkInstanceCreateInfo *)(info);
 		create_info->enabledExtensionCount = count;
 		create_info->ppEnabledExtensionNames = ext_names;
 	}
@@ -775,18 +770,18 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_EnumerateInstanceExtensionProperties(
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL OBS_EnumerateDeviceExtensionProperties(
-	VkPhysicalDevice physical_device, const char *name, uint32_t *p_count,
+	VkPhysicalDevice phy_device, const char *name, uint32_t *p_count,
 	VkExtensionProperties *props)
 {
 	/* pass through any queries that aren't to us */
 	if (name == NULL || strcmp(name, "VK_LAYER_OBS_HOOK")) {
-		if (physical_device == VK_NULL_HANDLE)
+		if (phy_device == VK_NULL_HANDLE)
 			return VK_SUCCESS;
 
 		VkLayerInstanceDispatchTable *disp =
-			GetInstanceDispatchTable(TOKEY(physical_device));
+			GetInstanceDispatchTable(TOKEY(phy_device));
 		return disp->EnumerateDeviceExtensionProperties(
-			physical_device, name, p_count, props);
+			phy_device, name, p_count, props);
 	}
 
 	if (p_count)
@@ -804,16 +799,15 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_EnumerateDeviceExtensionProperties(
 	return VK_SUCCESS;
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-OBS_EnumeratePhysicalDevices(VkInstance instance, uint32_t *p_count,
-			     VkPhysicalDevice *physical_devices)
+VKAPI_ATTR VkResult VKAPI_CALL OBS_EnumeratePhysicalDevices(
+	VkInstance instance, uint32_t *p_count, VkPhysicalDevice *phy_devices)
 {
 	struct vk_inst_data *inst_data = GetInstanceData(TOKEY(instance));
 	VkLayerInstanceDispatchTable *dispatch_table =
 		&inst_data->dispatch_table;
 
 	VkResult res = dispatch_table->EnumeratePhysicalDevices(
-		instance, p_count, physical_devices);
+		instance, p_count, phy_devices);
 
 	if (res == VK_SUCCESS) {
 		uint32_t physical_count = *p_count;
@@ -823,12 +817,12 @@ OBS_EnumeratePhysicalDevices(VkInstance instance, uint32_t *p_count,
 				"storage for instance %p, clamping to %d\n",
 				instance, physical_count);
 		}
-		inst_data->physical_device_count = physical_count;
+		inst_data->phy_device_count = physical_count;
 
-		if (physical_devices != NULL) {
+		if (phy_devices != NULL) {
 			for (uint32_t i = 0; i < physical_count; ++i) {
 				inst_data->availablePhysicalDevices[i] =
-					(VkPhysicalDevice *)physical_devices[i];
+					(VkPhysicalDevice *)phy_devices[i];
 			}
 		}
 	}
@@ -836,9 +830,8 @@ OBS_EnumeratePhysicalDevices(VkInstance instance, uint32_t *p_count,
 }
 
 bool isSharedTextureSupported(
-	VkLayerInstanceDispatchTable *instdisp,
-	VkPhysicalDevice physical_device, VkFormat imageFormat,
-	VkImageUsageFlags imageUsage,
+	VkLayerInstanceDispatchTable *inst_disp, VkPhysicalDevice phy_device,
+	VkFormat imageFormat, VkImageUsageFlags imageUsage,
 	VkExternalMemoryPropertiesKHR *pExternalMemoryProperties)
 {
 	VkPhysicalDeviceImageFormatInfo2KHR imageFormatInfo;
@@ -873,8 +866,8 @@ bool isSharedTextureSupported(
 		VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2_KHR;
 	imageFormatProperties.pNext = &externalImageFormatProperties;
 
-	VkResult result = instdisp->GetPhysicalDeviceImageFormatProperties2KHR(
-		physical_device, &imageFormatInfo, &imageFormatProperties);
+	VkResult result = inst_disp->GetPhysicalDeviceImageFormatProperties2KHR(
+		phy_device, &imageFormatInfo, &imageFormatProperties);
 
 	*pExternalMemoryProperties =
 		externalImageFormatProperties.externalMemoryProperties;
@@ -884,141 +877,99 @@ bool isSharedTextureSupported(
 		 VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT_KHR));
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(
-	VkPhysicalDevice physical_device, const VkDeviceCreateInfo *info,
-	const VkAllocationCallbacks *allocator, VkDevice *p_device)
+static bool vk_init_req_extensions(VkPhysicalDevice phy_device,
+				   const VkDeviceCreateInfo *info,
+				   VkDeviceCreateInfo *create_info,
+				   VkLayerInstanceDispatchTable *inst_disp)
 {
+	struct ext_info {
+		const char *name;
+		bool found;
+		bool enabled;
+	};
 
-	VkDeviceCreateInfo *create_info =
-		(VkDeviceCreateInfo *)(info);
-	VkLayerInstanceDispatchTable *instdisp =
-		GetInstanceDispatchTable(TOKEY(physical_device));
+	struct ext_info req_ext[] = {
+		{.name = VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME},
+		{.name = VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME},
+		{.name = VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME},
+		{.name = VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME},
+		{.name = VK_KHR_BIND_MEMORY_2_EXTENSION_NAME},
+	};
 
-#pragma region(needed device extention)
-	/* ensure needed device extension are available and enabled */
-	bool external_memory_win32_available = false;
-	bool external_memory_available = false;
-	bool dedicated_allocation_available = false;
-	bool get_memory_requirements2_available = false;
-	bool bind_memory2_available = false;
-	{
-		uint32_t count = 0;
-		instdisp->EnumerateDeviceExtensionProperties(
-			physical_device, NULL, &count, NULL);
+	const size_t req_ext_count = sizeof(req_ext) / sizeof(req_ext[0]);
+	size_t req_ext_found = 0;
 
-		VkExtensionProperties *props = (VkExtensionProperties *)alloca(
-			sizeof(VkExtensionProperties) * count);
-		instdisp->EnumerateDeviceExtensionProperties(
-			physical_device, NULL, &count, props);
-		for (uint32_t e = 0; e < count; e++) {
-			external_memory_win32_available |=
-				(0 ==
-				 strcmp(props[e].extensionName,
-					VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME));
-			external_memory_available |=
-				(0 ==
-				 strcmp(props[e].extensionName,
-					VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME));
-			dedicated_allocation_available |=
-				(0 ==
-				 strcmp(props[e].extensionName,
-					VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME));
-			get_memory_requirements2_available |=
-				(0 ==
-				 strcmp(props[e].extensionName,
-					VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME));
-			bind_memory2_available |=
-				(0 ==
-				 strcmp(props[e].extensionName,
-					VK_KHR_BIND_MEMORY_2_EXTENSION_NAME));
+	uint32_t count = 0;
+	inst_disp->EnumerateDeviceExtensionProperties(phy_device, NULL, &count,
+						      NULL);
+
+	VkExtensionProperties *props =
+		(VkExtensionProperties *)alloca(sizeof(*props) * count);
+	inst_disp->EnumerateDeviceExtensionProperties(phy_device, NULL, &count,
+						      props);
+
+	for (uint32_t i = 0; i < count; i++) {
+		for (size_t j = 0; j < req_ext_count; j++) {
+			const char *name = props[i].extensionName;
+			struct ext_info *ext = &req_ext[j];
+
+			if (!ext->found && strcmp(ext->name, name) == 0) {
+				ext->found = true;
+				req_ext_found++;
+			}
 		}
 	}
 
-	if (external_memory_win32_available &&
-	    external_memory_available &&
-	    dedicated_allocation_available &&
-	    get_memory_requirements2_available &&
-	    bind_memory2_available) {
-		// add the exentions we need if not already there
-		bool found_external_memory_win32 = false;
-		bool found_external_memory = false;
-		bool found_dedicated_allocation = false;
-		bool found_get_memory_requirements2 = false;
-		bool found_bind_memory2 = false;
-
-		for (uint32_t i = 0; i < info->enabledExtensionCount; ++i) {
-			found_external_memory_win32 |=
-				(0 ==
-				 strcmp(info->ppEnabledExtensionNames[i],
-					VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME));
-			found_external_memory |=
-				(0 ==
-				 strcmp(info->ppEnabledExtensionNames[i],
-					VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME));
-			found_dedicated_allocation |=
-				(0 ==
-				 strcmp(info->ppEnabledExtensionNames[i],
-					VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME));
-			found_get_memory_requirements2 |=
-				(0 ==
-				 strcmp(info->ppEnabledExtensionNames[i],
-					VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME));
-			found_bind_memory2 |=
-				(0 ==
-				 strcmp(info->ppEnabledExtensionNames[i],
-					VK_KHR_BIND_MEMORY_2_EXTENSION_NAME));
-		}
-
-		uint32_t idx = info->enabledExtensionCount;
-		create_info->enabledExtensionCount +=
-			found_external_memory_win32 ? 0 : 1;
-		create_info->enabledExtensionCount += found_external_memory ? 0
-									    : 1;
-		create_info->enabledExtensionCount +=
-			found_dedicated_allocation ? 0 : 1;
-		create_info->enabledExtensionCount +=
-			found_get_memory_requirements2 ? 0 : 1;
-		create_info->enabledExtensionCount += found_bind_memory2 ? 0
-									 : 1;
-
-		const char **ext_names = (const char **)alloca(
-			sizeof(const char *) * info->enabledExtensionCount);
-		for (uint32_t i = 0; i < idx; ++i) {
-			ext_names[i] =
-				(const char *)(info->ppEnabledExtensionNames[i]);
-		}
-
-		if (!found_external_memory_win32) {
-			ext_names[idx++] =
-				(const char
-					 *)&VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME;
-		}
-		if (!found_external_memory) {
-			ext_names[idx++] =
-				(const char
-					 *)&VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME;
-		}
-		if (!found_dedicated_allocation) {
-			ext_names[idx++] =
-				(const char
-					 *)&VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME;
-		}
-		if (!found_get_memory_requirements2) {
-			ext_names[idx++] =
-				(const char
-					 *)&VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME;
-		}
-		if (!found_bind_memory2) {
-			ext_names[idx++] =
-				(const char
-					 *)&VK_KHR_BIND_MEMORY_2_EXTENSION_NAME;
-		}
-
-		create_info->ppEnabledExtensionNames = ext_names;
-	} else {
+	if (req_ext_found != req_ext_count) {
 		DbgOut("# OBS_Layer # Needed device extensions are not available\n");
+		return false;
 	}
-#pragma endregion
+
+	size_t req_enable_count = req_ext_count;
+
+	for (uint32_t i = 0; i < info->enabledExtensionCount; i++) {
+		for (size_t j = 0; j < req_ext_count; j++) {
+			const char *name = info->ppEnabledExtensionNames[i];
+			struct ext_info *ext = &req_ext[j];
+
+			if (!ext->enabled && strcmp(ext->name, name) == 0) {
+				ext->enabled = true;
+				req_enable_count--;
+			}
+		}
+	}
+
+	uint32_t idx = info->enabledExtensionCount;
+	create_info->enabledExtensionCount += (uint32_t)req_enable_count;
+
+	const char **ext_names = (const char **)alloca(
+		sizeof(const char *) * info->enabledExtensionCount);
+	for (uint32_t i = 0; i < idx; i++) {
+		ext_names[i] = (const char *)(info->ppEnabledExtensionNames[i]);
+	}
+
+	for (size_t i = 0; i < req_ext_count; i++) {
+		struct ext_info *ext = &req_ext[i];
+		if (!ext->enabled) {
+			ext_names[idx++] = ext->name;
+		}
+	}
+
+	create_info->ppEnabledExtensionNames = ext_names;
+	return true;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+OBS_CreateDevice(VkPhysicalDevice phy_device, const VkDeviceCreateInfo *info,
+		 const VkAllocationCallbacks *allocator, VkDevice *p_device)
+{
+	VkDeviceCreateInfo *create_info = (VkDeviceCreateInfo *)(info);
+	VkLayerInstanceDispatchTable *inst_disp =
+		GetInstanceDispatchTable(TOKEY(phy_device));
+
+	if (!vk_init_req_extensions(phy_device, info, create_info, inst_disp)) {
+		/* TODO */
+	}
 
 	// retrieve a usable queue, in order to issue our copy command
 	uint32_t family_idx = 0;
@@ -1027,13 +978,13 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(
 	uint32_t prop_count = 0;
 	VkQueueFamilyProperties queue_fam_props[16];
 
-	instdisp->GetPhysicalDeviceQueueFamilyProperties(physical_device,
-							 &prop_count, NULL);
+	inst_disp->GetPhysicalDeviceQueueFamilyProperties(phy_device,
+							  &prop_count, NULL);
 	// only support 16 queue family
 	prop_count = (prop_count > 16) ? 16 : prop_count;
 
-	instdisp->GetPhysicalDeviceQueueFamilyProperties(
-		physical_device, &prop_count, queue_fam_props);
+	inst_disp->GetPhysicalDeviceQueueFamilyProperties(
+		phy_device, &prop_count, queue_fam_props);
 
 	// find a queue that supports all capabilities, and if one doesn't exist, add it.
 	bool found = false;
@@ -1051,8 +1002,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(
 		uint32_t idx = info->pQueueCreateInfos[i].queueFamilyIndex;
 		// this requested queue is one we can use too
 		if ((idx < prop_count) &&
-		    (queue_fam_props[idx].queueFlags & search) ==
-			    search &&
+		    (queue_fam_props[idx].queueFlags & search) == search &&
 		    info->pQueueCreateInfos[i].queueCount > 0) {
 			family_idx = idx;
 			found = true;
@@ -1124,7 +1074,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(
 	PFN_vkCreateDevice createFunc =
 		(PFN_vkCreateDevice)gipa(VK_NULL_HANDLE, "vkCreateDevice");
 
-	createFunc(physical_device, info, allocator, p_device);
+	createFunc(phy_device, info, allocator, p_device);
 
 	// store the table by key
 	struct vk_data *data = get_device_data(TOKEY(*p_device));
@@ -1133,8 +1083,8 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(
 	// store the queue_family_idx needed for graphics command
 	data->queue_family_idx = family_idx;
 
-	// store the physical_device on which device is created
-	data->physical_device = physical_device;
+	// store the phy_device on which device is created
+	data->phy_device = phy_device;
 
 	// store the device
 	data->device = *p_device;
@@ -1234,7 +1184,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateDevice(
 	VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
 				  VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
-	if (!isSharedTextureSupported(instdisp, physical_device, format, usage,
+	if (!isSharedTextureSupported(inst_disp, phy_device, format, usage,
 				      &data->external_mem_props)) {
 		hlog(" Vulkan CreateDevice : texture sharing is not supported\n");
 	}
