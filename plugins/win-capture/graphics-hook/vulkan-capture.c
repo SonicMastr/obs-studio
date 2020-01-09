@@ -738,7 +738,7 @@ OBS_DestroyInstance(VkInstance instance, const VkAllocationCallbacks *allocator)
 	return VK_SUCCESS;
 }
 
-VKAPI_ATTR VkResult VKAPI OBS_EnumerateInstanceLayerProperties(
+static VkResult VKAPI OBS_EnumerateInstanceLayerProperties(
 	uint32_t *p_count, VkLayerProperties *props)
 {
 	if (p_count)
@@ -753,7 +753,7 @@ VKAPI_ATTR VkResult VKAPI OBS_EnumerateInstanceLayerProperties(
 	return VK_SUCCESS;
 }
 
-VKAPI_ATTR VkResult VKAPI OBS_EnumerateInstanceExtensionProperties(
+static VkResult VKAPI OBS_EnumerateInstanceExtensionProperties(
 	const char *name, uint32_t *p_count, VkExtensionProperties *props)
 {
 	if (name == NULL || strcmp(name, "VK_LAYER_OBS_HOOK"))
@@ -771,7 +771,7 @@ VKAPI_ATTR VkResult VKAPI OBS_EnumerateInstanceExtensionProperties(
 	return VK_SUCCESS;
 }
 
-VKAPI_ATTR VkResult VKAPI OBS_EnumerateDeviceExtensionProperties(
+static VkResult VKAPI OBS_EnumerateDeviceExtensionProperties(
 	VkPhysicalDevice phy_device, const char *name, uint32_t *p_count,
 	VkExtensionProperties *props)
 {
@@ -801,7 +801,7 @@ VKAPI_ATTR VkResult VKAPI OBS_EnumerateDeviceExtensionProperties(
 	return VK_SUCCESS;
 }
 
-VKAPI_ATTR VkResult VKAPI OBS_EnumeratePhysicalDevices(
+static VkResult VKAPI OBS_EnumeratePhysicalDevices(
 	VkInstance instance, uint32_t *p_count, VkPhysicalDevice *phy_devices)
 {
 	struct vk_inst_data *inst_data = GetInstanceData(TOKEY(instance));
@@ -964,9 +964,10 @@ static bool vk_init_req_extensions(VkPhysicalDevice phy_device,
 	return true;
 }
 
-VKAPI_ATTR VkResult VKAPI
-OBS_CreateDevice(VkPhysicalDevice phy_device, const VkDeviceCreateInfo *info,
-		 const VkAllocationCallbacks *allocator, VkDevice *p_device)
+static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
+				       const VkDeviceCreateInfo *info,
+				       const VkAllocationCallbacks *allocator,
+				       VkDevice *p_device)
 {
 	VkDeviceCreateInfo *create_info = (VkDeviceCreateInfo *)(info);
 	VkLayerInstanceDispatchTable *inst_disp =
@@ -1205,14 +1206,14 @@ OBS_CreateDevice(VkPhysicalDevice phy_device, const VkDeviceCreateInfo *info,
 	return VK_SUCCESS;
 }
 
-VKAPI_ATTR void VKAPI OBS_DestroyDevice(VkDevice device,
-					const VkAllocationCallbacks *allocator)
+static void VKAPI OBS_DestroyDevice(VkDevice device,
+				    const VkAllocationCallbacks *allocator)
 {
 	(void)allocator;
 	vk_remove_device(&device);
 }
 
-VKAPI_ATTR VkResult VKAPI OBS_CreateSwapchainKHR(
+static VkResult VKAPI OBS_CreateSwapchainKHR(
 	VkDevice device, const VkSwapchainCreateInfoKHR *info,
 	const VkAllocationCallbacks *allocator, VkSwapchainKHR *p_swap)
 {
@@ -1247,9 +1248,9 @@ VKAPI_ATTR VkResult VKAPI OBS_CreateSwapchainKHR(
 	return res;
 }
 
-VKAPI_ATTR void VKAPI
-OBS_DestroySwapchainKHR(VkDevice device, VkSwapchainKHR swapchain,
-			const VkAllocationCallbacks *allocator)
+static void VKAPI OBS_DestroySwapchainKHR(VkDevice device,
+					  VkSwapchainKHR swapchain,
+					  const VkAllocationCallbacks *allocator)
 {
 	struct vk_data *data = get_device_data(TOKEY(device));
 	VkLayerDispatchTable *dispatch_table = &data->dispatch_table;
@@ -1277,8 +1278,8 @@ OBS_DestroySwapchainKHR(VkDevice device, VkSwapchainKHR swapchain,
 	dispatch_table->DestroySwapchainKHR(device, swapchain, allocator);
 }
 
-VKAPI_ATTR VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
-					      const VkPresentInfoKHR *info)
+static VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
+					  const VkPresentInfoKHR *info)
 {
 	VkResult res = VK_SUCCESS;
 	struct vk_data *data = get_device_data(TOKEY(queue));
@@ -1490,10 +1491,10 @@ VKAPI_ATTR VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
 	return dispatch_table->QueuePresentKHR(queue, info);
 }
 
-VKAPI_ATTR VkResult VKAPI OBS_GetSwapchainImagesKHR(VkDevice device,
-						    VkSwapchainKHR swapchain,
-						    uint32_t *count,
-						    VkImage *images)
+static VkResult VKAPI OBS_GetSwapchainImagesKHR(VkDevice device,
+						VkSwapchainKHR swapchain,
+						uint32_t *count,
+						VkImage *images)
 {
 	VkLayerDispatchTable *dispatch_table =
 		GetDeviceDispatchTable(TOKEY(device));
@@ -1502,7 +1503,7 @@ VKAPI_ATTR VkResult VKAPI OBS_GetSwapchainImagesKHR(VkDevice device,
 	return res;
 }
 
-VKAPI_ATTR VkResult VKAPI OBS_CreateWin32SurfaceKHR(
+static VkResult VKAPI OBS_CreateWin32SurfaceKHR(
 	VkInstance inst, const VkWin32SurfaceCreateInfoKHR *info,
 	const VkAllocationCallbacks *allocator, VkSurfaceKHR *surf)
 {
@@ -1574,8 +1575,8 @@ EXPORT VkFunc VKAPI OBS_GetInstanceProcAddr(VkInstance instance,
 	return dispatch_table->GetInstanceProcAddr(instance, name);
 }
 
-VKAPI_ATTR VkFunc VKAPI OBS_GetPhysicalDeviceProcAddr(VkInstance instance,
-						      const char *name)
+static VkFunc VKAPI OBS_GetPhysicalDeviceProcAddr(VkInstance instance,
+						  const char *name)
 {
 	VkLayerInstanceDispatchTable *instdt =
 		GetInstanceDispatchTable(TOKEY(instance));
