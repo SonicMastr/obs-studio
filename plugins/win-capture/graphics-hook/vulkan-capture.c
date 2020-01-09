@@ -8,6 +8,7 @@
 #include <malloc.h>
 #include <vulkan/vulkan.h>
 #include <vulkan/vk_layer.h>
+
 #undef VK_LAYER_EXPORT
 #if defined(WIN32)
 #define VK_LAYER_EXPORT __declspec(dllexport)
@@ -24,9 +25,6 @@
 
 #include "vulkan-capture.h"
 
-//#define DEBUG_PRINT
-//#define DEBUG_PRINT_PROCADDR
-
 #define MAX_INSTANCE_COUNT 16
 #define MAX_SURFACE_PER_INSTANCE 16
 #define MAX_DEVICE_COUNT 16
@@ -36,7 +34,7 @@
 
 static bool initialized = false;
 static bool hooked = false;
-CRITICAL_SECTION mutex;
+static CRITICAL_SECTION mutex;
 
 /* use the loader's dispatch table pointer as a key for dispatch map lookups */
 #define TOKEY(x) (*(void **)x)
@@ -100,8 +98,8 @@ static struct swap_data *get_new_swap_data(struct vk_data *data)
 /* devices storage: devices/device_table share the same index maintain those on
  * the leading device_count elements */
 struct vk_data device_table[MAX_DEVICE_COUNT];
-void *devices[MAX_DEVICE_COUNT];
-uint8_t device_count;
+static void *devices[MAX_DEVICE_COUNT];
+static uint8_t device_count;
 
 static inline uint8_t get_device_idx(VkDevice *dev)
 {
@@ -224,9 +222,9 @@ static struct vk_surf_data *FindSurfaceData(struct vk_inst_data *inst_data,
 
 /* instances level disptach table storage: inst_keys/inst_table share the same
  * index maintain those on the leading inst_count elements */
-struct vk_inst_data inst_table[MAX_INSTANCE_COUNT];
-void *inst_keys[MAX_INSTANCE_COUNT];
-uint8_t inst_count;
+static struct vk_inst_data inst_table[MAX_INSTANCE_COUNT];
+static void *inst_keys[MAX_INSTANCE_COUNT];
+static uint8_t inst_count;
 
 static inline uint8_t GetInstanceIndex(void *inst)
 {
@@ -828,7 +826,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_EnumeratePhysicalDevices(
 	return res;
 }
 
-bool shared_tex_supported(VkLayerInstanceDispatchTable *inst_disp,
+static bool shared_tex_supported(VkLayerInstanceDispatchTable *inst_disp,
 			  VkPhysicalDevice phy_device, VkFormat format,
 			  VkImageUsageFlags usage,
 			  VkExternalMemoryPropertiesKHR *external_mem_props)
