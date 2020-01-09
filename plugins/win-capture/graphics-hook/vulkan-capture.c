@@ -16,12 +16,13 @@
 #define VK_LAYER_EXPORT
 #endif
 
-#define EXPORT VK_LAYER_EXPORT
-
 #include <vulkan/vulkan_win32.h>
 #include <../Source/layers/vk_layer_dispatch_table.h>
 
+/* shorten stuff because dear GOD is vulkan unclean. */
 #define VKAPI VKAPI_CALL
+#define VkFunc PFN_vkVoidFunction
+#define EXPORT VK_LAYER_EXPORT
 
 #define COBJMACROS
 #include <dxgi.h>
@@ -1522,10 +1523,9 @@ VKAPI_ATTR VkResult VKAPI OBS_CreateWin32SurfaceKHR(
 
 #define GETPROCADDR(func)              \
 	if (!strcmp(name, "vk" #func)) \
-		return (PFN_vkVoidFunction)&OBS_##func;
+		return (VkFunc)&OBS_##func;
 
-EXPORT PFN_vkVoidFunction VKAPI OBS_GetDeviceProcAddr(VkDevice dev,
-						      const char *name)
+EXPORT VkFunc VKAPI OBS_GetDeviceProcAddr(VkDevice dev, const char *name)
 {
 	DbgOutProcAddr(
 		"# OBS_Layer # vkGetDeviceProcAddr [%s] called on device %p\n",
@@ -1546,8 +1546,8 @@ EXPORT PFN_vkVoidFunction VKAPI OBS_GetDeviceProcAddr(VkDevice dev,
 	return dispatch_table->GetDeviceProcAddr(dev, name);
 }
 
-EXPORT PFN_vkVoidFunction VKAPI OBS_GetInstanceProcAddr(VkInstance instance,
-							const char *name)
+EXPORT VkFunc VKAPI OBS_GetInstanceProcAddr(VkInstance instance,
+					    const char *name)
 {
 	DbgOutProcAddr(
 		"# OBS_Layer # vkGetInstanceProcAddr [%s] called on instance %p\n",
@@ -1574,8 +1574,8 @@ EXPORT PFN_vkVoidFunction VKAPI OBS_GetInstanceProcAddr(VkInstance instance,
 	return dispatch_table->GetInstanceProcAddr(instance, name);
 }
 
-VKAPI_ATTR PFN_vkVoidFunction VKAPI
-OBS_GetPhysicalDeviceProcAddr(VkInstance instance, const char *name)
+VKAPI_ATTR VkFunc VKAPI OBS_GetPhysicalDeviceProcAddr(VkInstance instance,
+						      const char *name)
 {
 	VkLayerInstanceDispatchTable *instdt =
 		GetInstanceDispatchTable(TOKEY(instance));
@@ -1586,8 +1586,8 @@ OBS_GetPhysicalDeviceProcAddr(VkInstance instance, const char *name)
 	return instdt->GetPhysicalDeviceProcAddr(instance, name);
 }
 
-EXPORT PFN_vkVoidFunction VKAPI
-OBS_layerGetPhysicalDeviceProcAddr(VkInstance instance, const char *name)
+EXPORT VkFunc VKAPI OBS_layerGetPhysicalDeviceProcAddr(VkInstance instance,
+						       const char *name)
 {
 	return OBS_GetPhysicalDeviceProcAddr(instance, name);
 }
