@@ -826,10 +826,11 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_EnumeratePhysicalDevices(
 	return res;
 }
 
-static bool shared_tex_supported(VkLayerInstanceDispatchTable *inst_disp,
-			  VkPhysicalDevice phy_device, VkFormat format,
-			  VkImageUsageFlags usage,
-			  VkExternalMemoryPropertiesKHR *external_mem_props)
+static bool
+shared_tex_supported(VkLayerInstanceDispatchTable *inst_disp,
+		     VkPhysicalDevice phy_device, VkFormat format,
+		     VkImageUsageFlags usage,
+		     VkExternalMemoryPropertiesKHR *external_mem_props)
 {
 	VkPhysicalDeviceImageFormatInfo2KHR format_info;
 	VkPhysicalDeviceExternalImageFormatInfoKHR external_img_format;
@@ -1518,7 +1519,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateWin32SurfaceKHR(
 	if (!strcmp(name, "vk" #func)) \
 		return (PFN_vkVoidFunction)&OBS_##func;
 
-VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
+VK_LAYER_EXPORT PFN_vkVoidFunction VKAPI_CALL
 OBS_GetDeviceProcAddr(VkDevice dev, const char *name)
 {
 	DbgOutProcAddr(
@@ -1540,7 +1541,7 @@ OBS_GetDeviceProcAddr(VkDevice dev, const char *name)
 	return dispatch_table->GetDeviceProcAddr(dev, name);
 }
 
-VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
+VK_LAYER_EXPORT PFN_vkVoidFunction VKAPI_CALL
 OBS_GetInstanceProcAddr(VkInstance instance, const char *name)
 {
 	DbgOutProcAddr(
@@ -1580,7 +1581,7 @@ OBS_GetPhysicalDeviceProcAddr(VkInstance instance, const char *name)
 	return instdt->GetPhysicalDeviceProcAddr(instance, name);
 }
 
-VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
+VK_LAYER_EXPORT PFN_vkVoidFunction VKAPI_CALL
 OBS_layerGetPhysicalDeviceProcAddr(VkInstance instance, const char *name)
 {
 	return OBS_GetPhysicalDeviceProcAddr(instance, name);
@@ -1589,8 +1590,7 @@ OBS_layerGetPhysicalDeviceProcAddr(VkInstance instance, const char *name)
 static uint32_t loader_layer_if_version =
 	CURRENT_LOADER_LAYER_INTERFACE_VERSION;
 
-VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL
-OBS_NegotiateLoaderLayerInterfaceVersion(
+VK_LAYER_EXPORT VkResult VKAPI_CALL OBS_NegotiateLoaderLayerInterfaceVersion(
 	VkNegotiateLayerInterface *layer_interface)
 {
 	if (layer_interface->loaderLayerInterfaceVersion >= 2) {
