@@ -97,8 +97,8 @@ static struct swap_data *get_new_swap_data(struct vk_data *data)
 	return NULL;
 }
 
-/* devices storage : devices/device_table share the same index maintain those
- * on the leading device_count elements */
+/* devices storage: devices/device_table share the same index maintain those on
+ * the leading device_count elements */
 struct vk_data device_table[MAX_DEVICE_COUNT];
 void *devices[MAX_DEVICE_COUNT];
 uint8_t device_count;
@@ -222,8 +222,8 @@ static struct vk_surf_data *FindSurfaceData(struct vk_inst_data *inst_data,
 	return NULL;
 }
 
-/* instances level disptach table storage : inst_keys/inst_table share the same index
- * maintain those on the leading inst_count elements */
+/* instances level disptach table storage: inst_keys/inst_table share the same
+ * index maintain those on the leading inst_count elements */
 struct vk_inst_data inst_table[MAX_INSTANCE_COUNT];
 void *inst_keys[MAX_INSTANCE_COUNT];
 uint8_t inst_count;
@@ -840,7 +840,10 @@ bool isSharedTextureSupported(
 	externalImageFormat.sType =
 		VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO_KHR;
 	externalImageFormat.pNext = NULL;
-	//externalImageFormat.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT_KHR;
+#if 0
+	externalImageFormat.handleType =
+		VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT_KHR;
+#endif
 	externalImageFormat.handleType =
 		VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_KMT_BIT_KHR;
 
@@ -971,36 +974,38 @@ OBS_CreateDevice(VkPhysicalDevice phy_device, const VkDeviceCreateInfo *info,
 		/* TODO */
 	}
 
-	// retrieve a usable queue, in order to issue our copy command
+	/* retrieve a usable queue, in order to issue our copy command */
 	uint32_t family_idx = 0;
 #pragma region(usablequeue)
-	// find or create a usable queue
+	/* find or create a usable queue */
 	uint32_t prop_count = 0;
 	VkQueueFamilyProperties queue_fam_props[16];
 
 	inst_disp->GetPhysicalDeviceQueueFamilyProperties(phy_device,
 							  &prop_count, NULL);
-	// only support 16 queue family
+	/* only support 16 queue family */
 	prop_count = (prop_count > 16) ? 16 : prop_count;
 
 	inst_disp->GetPhysicalDeviceQueueFamilyProperties(
 		phy_device, &prop_count, queue_fam_props);
 
-	// find a queue that supports all capabilities, and if one doesn't exist, add it.
+	/* find a queue that supports all capabilities, and if one doesn't
+	 * exist, add it. */
 	bool found = false;
 
-	// we need graphics, and if there is a graphics queue there must be a graphics & compute queue.
+	/* we need graphics, and if there is a graphics queue there must be a
+	 * graphics & compute queue. */
 	VkQueueFlags search = (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT);
 
-	// for queue priorities, if we need it
+	/* for queue priorities, if we need it */
 	float one = 1.0f;
 
-	// if we need to change the requested queues, it will point to this
+	/* if we need to change the requested queues, it will point to this */
 	VkDeviceQueueCreateInfo *mod_queues = NULL;
 
 	for (uint32_t i = 0; i < info->queueCreateInfoCount; i++) {
 		uint32_t idx = info->pQueueCreateInfos[i].queueFamilyIndex;
-		// this requested queue is one we can use too
+		/* this requested queue is one we can use too */
 		if ((idx < prop_count) &&
 		    (queue_fam_props[idx].queueFlags & search) == search &&
 		    info->pQueueCreateInfos[i].queueCount > 0) {
@@ -1009,7 +1014,8 @@ OBS_CreateDevice(VkPhysicalDevice phy_device, const VkDeviceCreateInfo *info,
 			break;
 		}
 	}
-	// if we didn't find it, search for which queue family we should add a request for
+	/* if we didn't find it, search for which queue family we should add a
+	 * request for */
 	if (!found) {
 		for (uint32_t i = 0; i < prop_count; i++) {
 			if ((queue_fam_props[i].queueFlags & search) ==
@@ -1024,7 +1030,7 @@ OBS_CreateDevice(VkPhysicalDevice phy_device, const VkDeviceCreateInfo *info,
 			return VK_ERROR_INITIALIZATION_FAILED;
 		}
 
-		// we found the queue family, add it
+		/* we found the queue family, add it */
 		mod_queues = (VkDeviceQueueCreateInfo *)alloca(
 			sizeof(VkDeviceQueueCreateInfo) *
 			(info->queueCreateInfoCount + 1));
@@ -1049,7 +1055,7 @@ OBS_CreateDevice(VkPhysicalDevice phy_device, const VkDeviceCreateInfo *info,
 	VkLayerDeviceCreateInfo *layer_create_info =
 		(VkLayerDeviceCreateInfo *)info->pNext;
 
-	// step through the chain of pNext until we get to the link info
+	/* step through the chain of pNext until we get to the link info */
 	while (layer_create_info &&
 	       (layer_create_info->sType !=
 			VK_STRUCTURE_TYPE_LOADER_DEVICE_CREATE_INFO ||
@@ -1059,7 +1065,7 @@ OBS_CreateDevice(VkPhysicalDevice phy_device, const VkDeviceCreateInfo *info,
 	}
 
 	if (layer_create_info == NULL) {
-		// No loader instance create info
+		/* No loader instance create info */
 		return VK_ERROR_INITIALIZATION_FAILED;
 	}
 
@@ -1067,7 +1073,7 @@ OBS_CreateDevice(VkPhysicalDevice phy_device, const VkDeviceCreateInfo *info,
 		layer_create_info->u.pLayerInfo->pfnNextGetInstanceProcAddr;
 	PFN_vkGetDeviceProcAddr gdpa =
 		layer_create_info->u.pLayerInfo->pfnNextGetDeviceProcAddr;
-	// move chain on for next layer
+	/* move chain on for next layer */
 	layer_create_info->u.pLayerInfo =
 		layer_create_info->u.pLayerInfo->pNext;
 
@@ -1076,20 +1082,21 @@ OBS_CreateDevice(VkPhysicalDevice phy_device, const VkDeviceCreateInfo *info,
 
 	createFunc(phy_device, info, allocator, p_device);
 
-	// store the table by key
+	/* store the table by key */
 	struct vk_data *data = get_device_data(TOKEY(*p_device));
 	VkLayerDispatchTable *dispatch_table = &data->dispatch_table;
 
-	// store the queue_family_idx needed for graphics command
+	/* store the queue_family_idx needed for graphics command */
 	data->queue_family_idx = family_idx;
 
-	// store the phy_device on which device is created
+	/* store the phy_device on which device is created */
 	data->phy_device = phy_device;
 
-	// store the device
+	/* store the device */
 	data->device = *p_device;
 
-	// feed our dispatch table for the functions we need (function pointer into the next layer)
+	/* feed our dispatch table for the functions we need (function pointer
+	 * into the next layer) */
 	dispatch_table->GetDeviceProcAddr =
 		(PFN_vkGetDeviceProcAddr)gdpa(*p_device, "vkGetDeviceProcAddr");
 	dispatch_table->DestroyDevice =
@@ -1133,7 +1140,11 @@ OBS_CreateDevice(VkPhysicalDevice phy_device, const VkDeviceCreateInfo *info,
 
 	dispatch_table->CmdCopyImage =
 		(PFN_vkCmdCopyImage)gdpa(*p_device, "vkCmdCopyImage");
-	//dispatch_table->CmdBlitImage = (PFN_vkCmdBlitImage)gdpa(*p_device, "vkCmdBlitImage"); //might help handling formats
+#if 0
+	/* might help handling formats */
+	dispatch_table->CmdBlitImage = (PFN_vkCmdBlitImage)gdpa(*p_device,
+			"vkCmdBlitImage");
+#endif
 
 	dispatch_table->CmdPipelineBarrier = (PFN_vkCmdPipelineBarrier)gdpa(
 		*p_device, "vkCmdPipelineBarrier");
@@ -1153,7 +1164,7 @@ OBS_CreateDevice(VkPhysicalDevice phy_device, const VkDeviceCreateInfo *info,
 		(PFN_vkAllocateCommandBuffers)gdpa(*p_device,
 						   "vkAllocateCommandBuffers");
 
-	// retrieve the queue
+	/* retrieve the queue */
 	dispatch_table->GetDeviceQueue(*p_device, family_idx, 0, &data->queue);
 
 	if (data->cmd_pool == VK_NULL_HANDLE) {
@@ -1195,7 +1206,7 @@ OBS_CreateDevice(VkPhysicalDevice phy_device, const VkDeviceCreateInfo *info,
 VKAPI_ATTR void VKAPI_CALL
 OBS_DestroyDevice(VkDevice device, const VkAllocationCallbacks *allocator)
 {
-	allocator; //unused
+	(void)allocator;
 	vk_remove_device(&device);
 }
 
@@ -1328,7 +1339,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue,
 				VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 			beginInfo.pInheritanceInfo = NULL;
 
-			// do image copy
+			/* do image copy */
 			res = dispatch_table->BeginCommandBuffer(
 				data->cmd_buffer, &beginInfo);
 			DbgOutRes("# OBS_Layer # BeginCommandBuffer %s\n", res);
@@ -1336,7 +1347,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue,
 			VkImage currentBackBuffer =
 				swap->swap_images[info->pImageIndices[i]];
 
-			// transition currentBackBuffer to transfer source state
+			/* transition currentBackBuffer to transfer source state */
 			VkImageMemoryBarrier presentMemoryBarrier;
 			presentMemoryBarrier.sType =
 				VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -1344,7 +1355,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue,
 			presentMemoryBarrier.srcAccessMask =
 				VK_ACCESS_TRANSFER_WRITE_BIT;
 			presentMemoryBarrier.dstAccessMask =
-				VK_ACCESS_TRANSFER_READ_BIT; // VK_ACCESS_TRANSFER_READ_BIT;
+				VK_ACCESS_TRANSFER_READ_BIT;
 			presentMemoryBarrier.oldLayout =
 				VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 			presentMemoryBarrier.newLayout =
@@ -1352,7 +1363,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue,
 			presentMemoryBarrier.srcQueueFamilyIndex =
 				VK_QUEUE_FAMILY_IGNORED;
 			presentMemoryBarrier.dstQueueFamilyIndex =
-				VK_QUEUE_FAMILY_IGNORED; //data->queue_family_idx;
+				VK_QUEUE_FAMILY_IGNORED;
 			presentMemoryBarrier.image = currentBackBuffer;
 			presentMemoryBarrier.subresourceRange.aspectMask =
 				VK_IMAGE_ASPECT_COLOR_BIT;
@@ -1362,21 +1373,21 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue,
 				0;
 			presentMemoryBarrier.subresourceRange.layerCount = 1;
 
-			// transition exportedTexture to transfer dest state
+			/* transition exportedTexture to transfer dest state */
 			VkImageMemoryBarrier destMemoryBarrier;
 			destMemoryBarrier.sType =
 				VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 			destMemoryBarrier.pNext = NULL;
 			destMemoryBarrier.srcAccessMask = 0;
 			destMemoryBarrier.dstAccessMask =
-				VK_ACCESS_TRANSFER_WRITE_BIT; // VK_ACCESS_TRANSFER_READ_BIT;
+				VK_ACCESS_TRANSFER_WRITE_BIT;
 			destMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 			destMemoryBarrier.newLayout =
 				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 			destMemoryBarrier.srcQueueFamilyIndex =
 				VK_QUEUE_FAMILY_IGNORED;
 			destMemoryBarrier.dstQueueFamilyIndex =
-				VK_QUEUE_FAMILY_IGNORED; //data->queue_family_idx;
+				VK_QUEUE_FAMILY_IGNORED;
 			destMemoryBarrier.image = swap->export_image;
 			destMemoryBarrier.subresourceRange.aspectMask =
 				VK_IMAGE_ASPECT_COLOR_BIT;
@@ -1398,7 +1409,8 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue,
 				data->cmd_buffer, srcStages, dstStages, 0, 0,
 				NULL, 0, NULL, 1, &destMemoryBarrier);
 
-			// copy currentBackBuffer's content to our interop image
+			/* copy currentBackBuffer's content to our interop
+			 * image */
 
 			VkImageCopy cpy;
 			cpy.srcSubresource.aspectMask =
@@ -1426,9 +1438,10 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue,
 				swap->export_image,
 				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cpy);
 
-			// Restore the swap chain image layout to what it was before.
-			// This may not be strictly needed, but it is generally good to restore
-			// things to original state.
+			/* Restore the swap chain image layout to what it was
+			 * before.  This may not be strictly needed, but it is
+			 * generally good to restore things to their original
+			 * state.  */
 			presentMemoryBarrier.oldLayout =
 				VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 			presentMemoryBarrier.newLayout =
@@ -1537,7 +1550,7 @@ OBS_GetInstanceProcAddr(VkInstance instance, const char *name)
 	DbgOutProcAddr(
 		"# OBS_Layer # vkGetInstanceProcAddr [%s] called on instance %p\n",
 		name, instance);
-	// instance chain functions we intercept
+	/* instance chain functions we intercept */
 	GETPROCADDR(GetInstanceProcAddr);
 	GETPROCADDR(EnumerateInstanceLayerProperties);
 	GETPROCADDR(EnumerateInstanceExtensionProperties);
@@ -1546,7 +1559,7 @@ OBS_GetInstanceProcAddr(VkInstance instance, const char *name)
 	GETPROCADDR(DestroyInstance);
 	GETPROCADDR(CreateWin32SurfaceKHR);
 
-	// device chain functions we intercept
+	/* device chain functions we intercept */
 	GETPROCADDR(GetDeviceProcAddr);
 	GETPROCADDR(EnumerateDeviceExtensionProperties);
 	GETPROCADDR(CreateDevice);
