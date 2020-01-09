@@ -16,6 +16,8 @@
 #define VK_LAYER_EXPORT
 #endif
 
+#define EXPORT VK_LAYER_EXPORT
+
 #include <vulkan/vulkan_win32.h>
 #include <../Source/layers/vk_layer_dispatch_table.h>
 
@@ -618,7 +620,7 @@ bool shutdown_vk_layer()
 	return true;
 }
 
-VK_LAYER_EXPORT VkResult VKAPI_CALL
+EXPORT VkResult VKAPI_CALL
 OBS_CreateInstance(const VkInstanceCreateInfo *info,
 		   const VkAllocationCallbacks *allocator, VkInstance *p_inst)
 {
@@ -723,7 +725,7 @@ OBS_CreateInstance(const VkInstanceCreateInfo *info,
 	return res;
 }
 
-VK_LAYER_EXPORT VkResult VKAPI_CALL
+EXPORT VkResult VKAPI_CALL
 OBS_DestroyInstance(VkInstance instance, const VkAllocationCallbacks *allocator)
 {
 	VkLayerInstanceDispatchTable *dispatch_table =
@@ -1519,8 +1521,8 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateWin32SurfaceKHR(
 	if (!strcmp(name, "vk" #func)) \
 		return (PFN_vkVoidFunction)&OBS_##func;
 
-VK_LAYER_EXPORT PFN_vkVoidFunction VKAPI_CALL
-OBS_GetDeviceProcAddr(VkDevice dev, const char *name)
+EXPORT PFN_vkVoidFunction VKAPI_CALL OBS_GetDeviceProcAddr(VkDevice dev,
+							   const char *name)
 {
 	DbgOutProcAddr(
 		"# OBS_Layer # vkGetDeviceProcAddr [%s] called on device %p\n",
@@ -1541,7 +1543,7 @@ OBS_GetDeviceProcAddr(VkDevice dev, const char *name)
 	return dispatch_table->GetDeviceProcAddr(dev, name);
 }
 
-VK_LAYER_EXPORT PFN_vkVoidFunction VKAPI_CALL
+EXPORT PFN_vkVoidFunction VKAPI_CALL
 OBS_GetInstanceProcAddr(VkInstance instance, const char *name)
 {
 	DbgOutProcAddr(
@@ -1581,13 +1583,13 @@ OBS_GetPhysicalDeviceProcAddr(VkInstance instance, const char *name)
 	return instdt->GetPhysicalDeviceProcAddr(instance, name);
 }
 
-VK_LAYER_EXPORT PFN_vkVoidFunction VKAPI_CALL
+EXPORT PFN_vkVoidFunction VKAPI_CALL
 OBS_layerGetPhysicalDeviceProcAddr(VkInstance instance, const char *name)
 {
 	return OBS_GetPhysicalDeviceProcAddr(instance, name);
 }
 
-VK_LAYER_EXPORT VkResult VKAPI_CALL OBS_NegotiateLoaderLayerInterfaceVersion(
+EXPORT VkResult VKAPI_CALL OBS_NegotiateLoaderLayerInterfaceVersion(
 	VkNegotiateLayerInterface *layer_interface)
 {
 	if (layer_interface->loaderLayerInterfaceVersion >= 2) {
