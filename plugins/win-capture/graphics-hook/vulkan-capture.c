@@ -483,17 +483,16 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 
 	if (data->external_mem_props.externalMemoryFeatures &
 	    VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT_KHR) {
-		VkMemoryDedicatedRequirementsKHR dedicatedRequirements;
-		memset(&dedicatedRequirements, 0,
-		       sizeof(dedicatedRequirements));
-		dedicatedRequirements.sType =
+		VkMemoryDedicatedRequirementsKHR dedicated_req;
+		memset(&dedicated_req, 0, sizeof(dedicated_req));
+		dedicated_req.sType =
 			VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS_KHR;
-		dedicatedRequirements.pNext = NULL;
+		dedicated_req.pNext = NULL;
 
 		VkMemoryRequirements2KHR mem_req2;
 		memset(&mem_req2, 0, sizeof(VkMemoryRequirements2KHR));
 		mem_req2.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2_KHR;
-		mem_req2.pNext = &dedicatedRequirements;
+		mem_req2.pNext = &dedicated_req;
 
 		VkImageMemoryRequirementsInfo2KHR img_req_info2;
 		memset(&img_req_info2, 0,
@@ -646,7 +645,7 @@ OBS_CreateInstance(const VkInstanceCreateInfo *info,
 	/* move chain on for next layer */
 	create_info->u.pLayerInfo = create_info->u.pLayerInfo->pNext;
 
-	PFN_vkCreateInstance createFunc =
+	PFN_vkCreateInstance create =
 		(PFN_vkCreateInstance)gpa(VK_NULL_HANDLE, "vkCreateInstance");
 
 	bool external_memory_capabilities_enabled = false;
@@ -665,13 +664,13 @@ OBS_CreateInstance(const VkInstanceCreateInfo *info,
 	if (!external_memory_capabilities_enabled ||
 	    !get_phy_device_properties2_enabled) {
 		uint32_t count = info->enabledExtensionCount;
-		uint32_t newExtCount = info->enabledExtensionCount;
+		uint32_t new_count = info->enabledExtensionCount;
 
-		newExtCount += external_memory_capabilities_enabled ? 0 : 1;
-		newExtCount += get_phy_device_properties2_enabled ? 0 : 1;
+		new_count += external_memory_capabilities_enabled ? 0 : 1;
+		new_count += get_phy_device_properties2_enabled ? 0 : 1;
 
-		const char **ext_names = (const char **)alloca(
-			sizeof(const char *) * newExtCount);
+		const char **ext_names =
+			(const char **)alloca(sizeof(const char *) * new_count);
 		for (uint32_t i = 0; i < count; ++i) {
 			ext_names[i] =
 				(const char *)(info->ppEnabledExtensionNames[i]);
@@ -690,7 +689,7 @@ OBS_CreateInstance(const VkInstanceCreateInfo *info,
 		create_info->ppEnabledExtensionNames = ext_names;
 	}
 
-	VkResult res = createFunc(info, allocator, p_inst);
+	VkResult res = create(info, allocator, p_inst);
 	DbgOutRes("# OBS_Layer # CreateInstance %s\n", res);
 
 	VkLayerInstanceDispatchTable *dispatch_table =
@@ -829,54 +828,53 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_EnumeratePhysicalDevices(
 	return res;
 }
 
-bool shared_tex_supported(
-	VkLayerInstanceDispatchTable *inst_disp, VkPhysicalDevice phy_device,
-	VkFormat imageFormat, VkImageUsageFlags imageUsage,
-	VkExternalMemoryPropertiesKHR *pExternalMemoryProperties)
+bool shared_tex_supported(VkLayerInstanceDispatchTable *inst_disp,
+			  VkPhysicalDevice phy_device, VkFormat format,
+			  VkImageUsageFlags usage,
+			  VkExternalMemoryPropertiesKHR *external_mem_props)
 {
-	VkPhysicalDeviceImageFormatInfo2KHR imageFormatInfo;
-	VkPhysicalDeviceExternalImageFormatInfoKHR externalImageFormat;
+	VkPhysicalDeviceImageFormatInfo2KHR format_info;
+	VkPhysicalDeviceExternalImageFormatInfoKHR external_img_format;
 
-	externalImageFormat.sType =
+	external_img_format.sType =
 		VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO_KHR;
-	externalImageFormat.pNext = NULL;
+	external_img_format.pNext = NULL;
 #if 0
-	externalImageFormat.handleType =
+	external_img_format.handleType =
 		VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT_KHR;
 #endif
-	externalImageFormat.handleType =
+	external_img_format.handleType =
 		VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_KMT_BIT_KHR;
 
-	imageFormatInfo.sType =
+	format_info.sType =
 		VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2_KHR;
-	imageFormatInfo.pNext = &externalImageFormat;
-	imageFormatInfo.format = imageFormat;
-	imageFormatInfo.type = VK_IMAGE_TYPE_2D;
-	imageFormatInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-	imageFormatInfo.flags = 0;
-	imageFormatInfo.usage = imageUsage;
+	format_info.pNext = &external_img_format;
+	format_info.format = format;
+	format_info.type = VK_IMAGE_TYPE_2D;
+	format_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+	format_info.flags = 0;
+	format_info.usage = usage;
 
-	VkExternalImageFormatPropertiesKHR externalImageFormatProperties;
-	memset(&externalImageFormatProperties, 0,
+	VkExternalImageFormatPropertiesKHR external_img_format_props;
+	memset(&external_img_format_props, 0,
 	       sizeof(VkExternalImageFormatPropertiesKHR));
-	externalImageFormatProperties.sType =
+	external_img_format_props.sType =
 		VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES_KHR;
-	externalImageFormatProperties.pNext = NULL;
+	external_img_format_props.pNext = NULL;
 
-	VkImageFormatProperties2KHR imageFormatProperties;
-	memset(&imageFormatProperties, 0, sizeof(VkImageFormatProperties2KHR));
-	imageFormatProperties.sType =
-		VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2_KHR;
-	imageFormatProperties.pNext = &externalImageFormatProperties;
+	VkImageFormatProperties2KHR format_props;
+	memset(&format_props, 0, sizeof(VkImageFormatProperties2KHR));
+	format_props.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2_KHR;
+	format_props.pNext = &external_img_format_props;
 
 	VkResult result = inst_disp->GetPhysicalDeviceImageFormatProperties2KHR(
-		phy_device, &imageFormatInfo, &imageFormatProperties);
+		phy_device, &format_info, &format_props);
 
-	*pExternalMemoryProperties =
-		externalImageFormatProperties.externalMemoryProperties;
+	*external_mem_props =
+		external_img_format_props.externalMemoryProperties;
 
 	return ((VK_SUCCESS == result) &&
-		(pExternalMemoryProperties->externalMemoryFeatures &
+		(external_mem_props->externalMemoryFeatures &
 		 VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT_KHR));
 }
 
@@ -1212,7 +1210,7 @@ OBS_DestroyDevice(VkDevice device, const VkAllocationCallbacks *allocator)
 
 VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateSwapchainKHR(
 	VkDevice device, const VkSwapchainCreateInfoKHR *info,
-	const VkAllocationCallbacks *allocator, VkSwapchainKHR *pSwapchain)
+	const VkAllocationCallbacks *allocator, VkSwapchainKHR *p_swap)
 {
 	struct vk_data *data = get_device_data(TOKEY(device));
 	VkLayerDispatchTable *dispatch_table = &data->dispatch_table;
@@ -1223,11 +1221,11 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateSwapchainKHR(
 	swap->img_extent = info->imageExtent;
 	swap->format = info->imageFormat;
 
-	VkResult res = dispatch_table->CreateSwapchainKHR(
-		device, info, allocator, pSwapchain);
+	VkResult res = dispatch_table->CreateSwapchainKHR(device, info,
+							  allocator, p_swap);
 
 	uint32_t count = 0;
-	res = dispatch_table->GetSwapchainImagesKHR(data->device, *pSwapchain,
+	res = dispatch_table->GetSwapchainImagesKHR(data->device, *p_swap,
 						    &count, NULL);
 	DbgOutRes("# OBS_Layer # GetSwapchainImagesKHR %s\n", res);
 
@@ -1236,11 +1234,11 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_CreateSwapchainKHR(
 				? count
 				: MAX_IMAGES_PER_SWAPCHAIN;
 		res = dispatch_table->GetSwapchainImagesKHR(
-			data->device, *pSwapchain, &count, swap->swap_images);
+			data->device, *p_swap, &count, swap->swap_images);
 		DbgOutRes("# OBS_Layer # GetSwapchainImagesKHR %s\n", res);
 	}
 
-	swap->swap = *pSwapchain;
+	swap->swap = *p_swap;
 
 	return res;
 }
@@ -1281,7 +1279,8 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue,
 	VkResult res = VK_SUCCESS;
 	struct vk_data *data = get_device_data(TOKEY(queue));
 	VkLayerDispatchTable *dispatch_table = &data->dispatch_table;
-	DbgOut2("# OBS_Layer # QueuePresentKHR called on devicekey %p, swapchaincount %d\n",
+	DbgOut2("# OBS_Layer # QueuePresentKHR called on "
+		"devicekey %p, swapchaincount %d\n",
 		dispatch_table, info->swapCount);
 
 	for (uint32_t i = 0; i < info->swapchainCount; ++i) {
@@ -1331,85 +1330,84 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue,
 		}
 
 		if (swap->captured) {
-			VkCommandBufferBeginInfo beginInfo;
-			beginInfo.sType =
+			VkCommandBufferBeginInfo begin_info;
+			begin_info.sType =
 				VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-			beginInfo.pNext = NULL;
-			beginInfo.flags =
+			begin_info.pNext = NULL;
+			begin_info.flags =
 				VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-			beginInfo.pInheritanceInfo = NULL;
+			begin_info.pInheritanceInfo = NULL;
 
 			/* do image copy */
 			res = dispatch_table->BeginCommandBuffer(
-				data->cmd_buffer, &beginInfo);
+				data->cmd_buffer, &begin_info);
 			DbgOutRes("# OBS_Layer # BeginCommandBuffer %s\n", res);
 
-			VkImage currentBackBuffer =
+			VkImage cur_backbuffer =
 				swap->swap_images[info->pImageIndices[i]];
 
-			/* transition currentBackBuffer to transfer source state */
-			VkImageMemoryBarrier presentMemoryBarrier;
-			presentMemoryBarrier.sType =
+			/* transition cur_backbuffer to transfer source state */
+			VkImageMemoryBarrier present_mem_barrier;
+			present_mem_barrier.sType =
 				VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-			presentMemoryBarrier.pNext = NULL;
-			presentMemoryBarrier.srcAccessMask =
+			present_mem_barrier.pNext = NULL;
+			present_mem_barrier.srcAccessMask =
 				VK_ACCESS_TRANSFER_WRITE_BIT;
-			presentMemoryBarrier.dstAccessMask =
+			present_mem_barrier.dstAccessMask =
 				VK_ACCESS_TRANSFER_READ_BIT;
-			presentMemoryBarrier.oldLayout =
+			present_mem_barrier.oldLayout =
 				VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-			presentMemoryBarrier.newLayout =
+			present_mem_barrier.newLayout =
 				VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-			presentMemoryBarrier.srcQueueFamilyIndex =
+			present_mem_barrier.srcQueueFamilyIndex =
 				VK_QUEUE_FAMILY_IGNORED;
-			presentMemoryBarrier.dstQueueFamilyIndex =
+			present_mem_barrier.dstQueueFamilyIndex =
 				VK_QUEUE_FAMILY_IGNORED;
-			presentMemoryBarrier.image = currentBackBuffer;
-			presentMemoryBarrier.subresourceRange.aspectMask =
+			present_mem_barrier.image = cur_backbuffer;
+			present_mem_barrier.subresourceRange.aspectMask =
 				VK_IMAGE_ASPECT_COLOR_BIT;
-			presentMemoryBarrier.subresourceRange.baseMipLevel = 0;
-			presentMemoryBarrier.subresourceRange.levelCount = 1;
-			presentMemoryBarrier.subresourceRange.baseArrayLayer =
-				0;
-			presentMemoryBarrier.subresourceRange.layerCount = 1;
+			present_mem_barrier.subresourceRange.baseMipLevel = 0;
+			present_mem_barrier.subresourceRange.levelCount = 1;
+			present_mem_barrier.subresourceRange.baseArrayLayer = 0;
+			present_mem_barrier.subresourceRange.layerCount = 1;
 
 			/* transition exportedTexture to transfer dest state */
-			VkImageMemoryBarrier destMemoryBarrier;
-			destMemoryBarrier.sType =
+			VkImageMemoryBarrier dst_mem_barrier;
+			dst_mem_barrier.sType =
 				VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-			destMemoryBarrier.pNext = NULL;
-			destMemoryBarrier.srcAccessMask = 0;
-			destMemoryBarrier.dstAccessMask =
+			dst_mem_barrier.pNext = NULL;
+			dst_mem_barrier.srcAccessMask = 0;
+			dst_mem_barrier.dstAccessMask =
 				VK_ACCESS_TRANSFER_WRITE_BIT;
-			destMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			destMemoryBarrier.newLayout =
+			dst_mem_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			dst_mem_barrier.newLayout =
 				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			destMemoryBarrier.srcQueueFamilyIndex =
+			dst_mem_barrier.srcQueueFamilyIndex =
 				VK_QUEUE_FAMILY_IGNORED;
-			destMemoryBarrier.dstQueueFamilyIndex =
+			dst_mem_barrier.dstQueueFamilyIndex =
 				VK_QUEUE_FAMILY_IGNORED;
-			destMemoryBarrier.image = swap->export_image;
-			destMemoryBarrier.subresourceRange.aspectMask =
+			dst_mem_barrier.image = swap->export_image;
+			dst_mem_barrier.subresourceRange.aspectMask =
 				VK_IMAGE_ASPECT_COLOR_BIT;
-			destMemoryBarrier.subresourceRange.baseMipLevel = 0;
-			destMemoryBarrier.subresourceRange.levelCount = 1;
-			destMemoryBarrier.subresourceRange.baseArrayLayer = 0;
-			destMemoryBarrier.subresourceRange.layerCount = 1;
+			dst_mem_barrier.subresourceRange.baseMipLevel = 0;
+			dst_mem_barrier.subresourceRange.levelCount = 1;
+			dst_mem_barrier.subresourceRange.baseArrayLayer = 0;
+			dst_mem_barrier.subresourceRange.layerCount = 1;
 
-			VkPipelineStageFlags srcStages =
+			VkPipelineStageFlags src_stages =
 				VK_PIPELINE_STAGE_TRANSFER_BIT;
-			VkPipelineStageFlags dstStages =
+			VkPipelineStageFlags dst_stages =
 				VK_PIPELINE_STAGE_TRANSFER_BIT;
 
 			dispatch_table->CmdPipelineBarrier(
-				data->cmd_buffer, srcStages, dstStages, 0, 0,
-				NULL, 0, NULL, 1, &presentMemoryBarrier);
+				data->cmd_buffer, src_stages, dst_stages, 0, 0,
+				NULL, 0, NULL, 1, &present_mem_barrier);
 
 			dispatch_table->CmdPipelineBarrier(
-				data->cmd_buffer, srcStages, dstStages, 0, 0,
-				NULL, 0, NULL, 1, &destMemoryBarrier);
+				data->cmd_buffer, src_stages, dst_stages, 0, 0,
+				NULL, 0, NULL, 1, &dst_mem_barrier);
 
-			/* copy currentBackBuffer's content to our interop
+			/* copy cur_backbuffer's content to our interop
 			 * image */
 
 			VkImageCopy cpy;
@@ -1433,7 +1431,7 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue,
 			cpy.extent.height = swap->img_extent.height;
 			cpy.extent.depth = 1;
 			dispatch_table->CmdCopyImage(
-				data->cmd_buffer, currentBackBuffer,
+				data->cmd_buffer, cur_backbuffer,
 				VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 				swap->export_image,
 				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cpy);
@@ -1442,27 +1440,27 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue,
 			 * before.  This may not be strictly needed, but it is
 			 * generally good to restore things to their original
 			 * state.  */
-			presentMemoryBarrier.oldLayout =
+			present_mem_barrier.oldLayout =
 				VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-			presentMemoryBarrier.newLayout =
+			present_mem_barrier.newLayout =
 				VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-			presentMemoryBarrier.srcAccessMask =
+			present_mem_barrier.srcAccessMask =
 				VK_ACCESS_TRANSFER_READ_BIT;
-			presentMemoryBarrier.dstAccessMask = 0;
+			present_mem_barrier.dstAccessMask = 0;
 			dispatch_table->CmdPipelineBarrier(
-				data->cmd_buffer, srcStages, dstStages, 0, 0,
-				NULL, 0, NULL, 1, &presentMemoryBarrier);
+				data->cmd_buffer, src_stages, dst_stages, 0, 0,
+				NULL, 0, NULL, 1, &present_mem_barrier);
 
-			destMemoryBarrier.oldLayout =
+			dst_mem_barrier.oldLayout =
 				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			destMemoryBarrier.newLayout =
+			dst_mem_barrier.newLayout =
 				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			destMemoryBarrier.srcAccessMask =
+			dst_mem_barrier.srcAccessMask =
 				VK_ACCESS_TRANSFER_READ_BIT;
-			destMemoryBarrier.dstAccessMask = 0;
+			dst_mem_barrier.dstAccessMask = 0;
 			dispatch_table->CmdPipelineBarrier(
-				data->cmd_buffer, srcStages, dstStages, 0, 0,
-				NULL, 0, NULL, 1, &destMemoryBarrier);
+				data->cmd_buffer, src_stages, dst_stages, 0, 0,
+				NULL, 0, NULL, 1, &dst_mem_barrier);
 
 			dispatch_table->EndCommandBuffer(data->cmd_buffer);
 
@@ -1477,10 +1475,10 @@ VKAPI_ATTR VkResult VKAPI_CALL OBS_QueuePresentKHR(VkQueue queue,
 			submit_info.signalSemaphoreCount = 0;
 			submit_info.pSignalSemaphores = NULL;
 
-			VkFence nullFence = {VK_NULL_HANDLE};
+			VkFence null_fence = {VK_NULL_HANDLE};
 
 			res = dispatch_table->QueueSubmit(
-				data->queue, 1, &submit_info, nullFence);
+				data->queue, 1, &submit_info, null_fence);
 			DbgOutRes("# OBS_Layer # QueueSubmit %s\n", res);
 		}
 	}
@@ -1575,7 +1573,6 @@ OBS_GetInstanceProcAddr(VkInstance instance, const char *name)
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
 OBS_GetPhysicalDeviceProcAddr(VkInstance instance, const char *name)
 {
-
 	VkLayerInstanceDispatchTable *instdt =
 		GetInstanceDispatchTable(TOKEY(instance));
 	if (instdt->GetPhysicalDeviceProcAddr == NULL) {
