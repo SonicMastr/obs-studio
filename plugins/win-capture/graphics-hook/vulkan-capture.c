@@ -45,10 +45,10 @@ static CRITICAL_SECTION mutex;
 #define TOKEY(x) (*(void **)x)
 
 struct swap_data {
-	VkSwapchainKHR swap;
+	VkSwapchainKHR sc;
 	VkExtent2D img_extent;
 	VkFormat format;
-	VkSurfaceKHR surface;
+	VkSurfaceKHR surf;
 	VkImage export_image;
 	VkDeviceMemory export_mem;
 	HANDLE handle;
@@ -76,11 +76,10 @@ struct vk_data {
 	HWND dummy_hwnd;
 };
 
-static struct swap_data *get_swap_data(struct vk_data *data,
-				       VkSwapchainKHR swapchain)
+static struct swap_data *get_swap_data(struct vk_data *data, VkSwapchainKHR sc)
 {
 	for (int i = 0; i < MAX_SWAPCHAIN_PER_DEVICE; ++i) {
-		if (data->swaps[i].swap == swapchain) {
+		if (data->swaps[i].sc == sc) {
 			return &data->swaps[i];
 		}
 	}
@@ -91,8 +90,7 @@ static struct swap_data *get_swap_data(struct vk_data *data,
 static struct swap_data *get_new_swap_data(struct vk_data *data)
 {
 	for (int i = 0; i < MAX_SWAPCHAIN_PER_DEVICE; ++i) {
-		if (data->swaps[i].surface == NULL &&
-		    data->swaps[i].swap == NULL) {
+		if (data->swaps[i].surf == NULL && data->swaps[i].sc == NULL) {
 			return &data->swaps[i];
 		}
 	}
@@ -162,8 +160,8 @@ static void vk_remove_device(void *dev)
 							swap->export_mem, NULL);
 
 		swap->handle = INVALID_HANDLE_VALUE;
-		swap->swap = VK_NULL_HANDLE;
-		swap->surface = NULL;
+		swap->sc = VK_NULL_HANDLE;
+		swap->surf = NULL;
 
 		if (swap->d3d11_tex)
 			ID3D11Resource_Release(swap->d3d11_tex);
@@ -191,7 +189,7 @@ static void vk_remove_device(void *dev)
 }
 
 struct vk_surf_data {
-	VkSurfaceKHR surface;
+	VkSurfaceKHR surf;
 	HINSTANCE hinstance;
 	HWND hwnd;
 };
@@ -205,19 +203,19 @@ struct vk_inst_data {
 };
 
 static struct vk_surf_data *FindSurfaceData(struct vk_inst_data *inst_data,
-					    VkSurfaceKHR surface)
+					    VkSurfaceKHR surf)
 {
 	int idx = MAX_SURFACE_PER_INSTANCE;
 	for (int i = 0; i < MAX_SURFACE_PER_INSTANCE; ++i) {
-		if (inst_data->surfaces[i].surface == surface) {
+		if (inst_data->surfaces[i].surf == surf) {
 			return &inst_data->surfaces[i];
-		} else if (inst_data->surfaces[i].surface == NULL &&
+		} else if (inst_data->surfaces[i].surf == NULL &&
 			   idx == MAX_SWAPCHAIN_PER_DEVICE) {
 			idx = i;
 		}
 	}
 	if (idx != MAX_SWAPCHAIN_PER_DEVICE) {
-		inst_data->surfaces[idx].surface = surface;
+		inst_data->surfaces[idx].surf = surf;
 		return &inst_data->surfaces[idx];
 	}
 
@@ -1213,61 +1211,56 @@ static void VKAPI OBS_DestroyDevice(VkDevice device,
 	vk_remove_device(&device);
 }
 
-static VkResult VKAPI OBS_CreateSwapchainKHR(
-	VkDevice device, const VkSwapchainCreateInfoKHR *info,
-	const VkAllocationCallbacks *allocator, VkSwapchainKHR *p_swap)
+static VkResult VKAPI
+OBS_CreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *info,
+		       const VkAllocationCallbacks *ac, VkSwapchainKHR *p_sc)
 {
 	struct vk_data *data = get_device_data(TOKEY(device));
-	VkLayerDispatchTable *dispatch_table = &data->dispatch_table;
+	VkLayerDispatchTable *table = &data->dispatch_table;
 
 	struct swap_data *swap = get_new_swap_data(data);
 
-	swap->surface = info->surface;
+	swap->surf = info->surface;
 	swap->img_extent = info->imageExtent;
 	swap->format = info->imageFormat;
 
-	VkResult res = dispatch_table->CreateSwapchainKHR(device, info,
-							  allocator, p_swap);
+	VkResult res = table->CreateSwapchainKHR(device, info, ac, p_sc);
+	VkSwapchainKHR sc = *p_sc;
 
 	uint32_t count = 0;
-	res = dispatch_table->GetSwapchainImagesKHR(data->device, *p_swap,
-						    &count, NULL);
+	res = table->GetSwapchainImagesKHR(data->device, sc, &count, NULL);
 	DbgOutRes("# OBS_Layer # GetSwapchainImagesKHR %s\n", res);
 
 	if (count > 0) {
 		count = (count < MAX_IMAGES_PER_SWAPCHAIN)
 				? count
 				: MAX_IMAGES_PER_SWAPCHAIN;
-		res = dispatch_table->GetSwapchainImagesKHR(
-			data->device, *p_swap, &count, swap->swap_images);
+		res = table->GetSwapchainImagesKHR(data->device, sc, &count,
+						   swap->swap_images);
 		DbgOutRes("# OBS_Layer # GetSwapchainImagesKHR %s\n", res);
 	}
 
-	swap->swap = *p_swap;
-
+	swap->sc = sc;
 	return res;
 }
 
-static void VKAPI OBS_DestroySwapchainKHR(VkDevice device,
-					  VkSwapchainKHR swapchain,
-					  const VkAllocationCallbacks *allocator)
+static void VKAPI OBS_DestroySwapchainKHR(VkDevice device, VkSwapchainKHR sc,
+					  const VkAllocationCallbacks *ac)
 {
 	struct vk_data *data = get_device_data(TOKEY(device));
-	VkLayerDispatchTable *dispatch_table = &data->dispatch_table;
+	VkLayerDispatchTable *table = &data->dispatch_table;
 
-	struct swap_data *swap = get_swap_data(data, swapchain);
+	struct swap_data *swap = get_swap_data(data, sc);
 	if (swap) {
 		if (swap->export_image)
-			dispatch_table->DestroyImage(device, swap->export_image,
-						     NULL);
+			table->DestroyImage(device, swap->export_image, NULL);
 
 		if (swap->export_mem)
-			dispatch_table->FreeMemory(device, swap->export_mem,
-						   NULL);
+			table->FreeMemory(device, swap->export_mem, NULL);
 
 		swap->handle = INVALID_HANDLE_VALUE;
-		swap->swap = VK_NULL_HANDLE;
-		swap->surface = NULL;
+		swap->sc = VK_NULL_HANDLE;
+		swap->surf = NULL;
 
 		if (swap->d3d11_tex)
 			ID3D11Resource_Release(swap->d3d11_tex);
@@ -1275,7 +1268,7 @@ static void VKAPI OBS_DestroySwapchainKHR(VkDevice device,
 		swap->captured = false;
 	}
 
-	dispatch_table->DestroySwapchainKHR(device, swapchain, allocator);
+	table->DestroySwapchainKHR(device, sc, ac);
 }
 
 /* ======================================================================== */
@@ -1292,57 +1285,63 @@ static void vk_capture(struct vk_data *data, VkLayerDispatchTable *table,
 	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	begin_info.pInheritanceInfo = NULL;
 
-	/* do image copy */
+	/* ------------------------------------------------------ */
+	/* do image copy                                          */
+
 	res = table->BeginCommandBuffer(data->cmd_buffer, &begin_info);
 	DbgOutRes("# OBS_Layer # BeginCommandBuffer %s\n", res);
 
 	VkImage cur_backbuffer = swap->swap_images[info->pImageIndices[idx]];
 
-	/* transition cur_backbuffer to transfer source state */
-	VkImageMemoryBarrier present_mem_barrier;
-	present_mem_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-	present_mem_barrier.pNext = NULL;
-	present_mem_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-	present_mem_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-	present_mem_barrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-	present_mem_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-	present_mem_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	present_mem_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	present_mem_barrier.image = cur_backbuffer;
-	present_mem_barrier.subresourceRange.aspectMask =
-		VK_IMAGE_ASPECT_COLOR_BIT;
-	present_mem_barrier.subresourceRange.baseMipLevel = 0;
-	present_mem_barrier.subresourceRange.levelCount = 1;
-	present_mem_barrier.subresourceRange.baseArrayLayer = 0;
-	present_mem_barrier.subresourceRange.layerCount = 1;
+	/* ------------------------------------------------------ */
+	/* transition cur_backbuffer to transfer source state     */
 
-	/* transition exportedTexture to transfer dest state */
-	VkImageMemoryBarrier dst_mem_barrier;
-	dst_mem_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-	dst_mem_barrier.pNext = NULL;
-	dst_mem_barrier.srcAccessMask = 0;
-	dst_mem_barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-	dst_mem_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	dst_mem_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	dst_mem_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	dst_mem_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	dst_mem_barrier.image = swap->export_image;
-	dst_mem_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	dst_mem_barrier.subresourceRange.baseMipLevel = 0;
-	dst_mem_barrier.subresourceRange.levelCount = 1;
-	dst_mem_barrier.subresourceRange.baseArrayLayer = 0;
-	dst_mem_barrier.subresourceRange.layerCount = 1;
+	VkImageMemoryBarrier src_mb;
+	src_mb.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	src_mb.pNext = NULL;
+	src_mb.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	src_mb.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	src_mb.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	src_mb.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	src_mb.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	src_mb.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	src_mb.image = cur_backbuffer;
+	src_mb.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	src_mb.subresourceRange.baseMipLevel = 0;
+	src_mb.subresourceRange.levelCount = 1;
+	src_mb.subresourceRange.baseArrayLayer = 0;
+	src_mb.subresourceRange.layerCount = 1;
 
 	VkPipelineStageFlags src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
 	VkPipelineStageFlags dst_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
 
 	table->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
-				  0, NULL, 0, NULL, 1, &present_mem_barrier);
+				  0, NULL, 0, NULL, 1, &src_mb);
+
+	/* ------------------------------------------------------ */
+	/* transition exportedTexture to transfer dest state      */
+
+	VkImageMemoryBarrier dst_mb;
+	dst_mb.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	dst_mb.pNext = NULL;
+	dst_mb.srcAccessMask = 0;
+	dst_mb.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	dst_mb.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	dst_mb.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	dst_mb.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	dst_mb.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	dst_mb.image = swap->export_image;
+	dst_mb.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	dst_mb.subresourceRange.baseMipLevel = 0;
+	dst_mb.subresourceRange.levelCount = 1;
+	dst_mb.subresourceRange.baseArrayLayer = 0;
+	dst_mb.subresourceRange.layerCount = 1;
 
 	table->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
-				  0, NULL, 0, NULL, 1, &dst_mem_barrier);
+				  0, NULL, 0, NULL, 1, &dst_mb);
 
-	/* copy cur_backbuffer's content to our interop image */
+	/* ------------------------------------------------------ */
+	/* copy cur_backbuffer's content to our interop image     */
 
 	VkImageCopy cpy;
 	cpy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -1367,24 +1366,29 @@ static void vk_capture(struct vk_data *data, VkLayerDispatchTable *table,
 			    swap->export_image,
 			    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cpy);
 
-	/* Restore the swap chain image layout to what it was before.  This may
-	 * not be strictly needed, but it is generally good to restore things
-	 * to their original state.  */
-	present_mem_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-	present_mem_barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-	present_mem_barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-	present_mem_barrier.dstAccessMask = 0;
-	table->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
-				  0, NULL, 0, NULL, 1, &present_mem_barrier);
+	/* ------------------------------------------------------ */
+	/* Restore the swap chain image layout to what it was 
+	 * before.  This may not be strictly needed, but it is
+	 * generally good to restore things to their original
+	 * state.  */
 
-	dst_mem_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	dst_mem_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	dst_mem_barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-	dst_mem_barrier.dstAccessMask = 0;
+	src_mb.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	src_mb.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	src_mb.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	src_mb.dstAccessMask = 0;
 	table->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
-				  0, NULL, 0, NULL, 1, &dst_mem_barrier);
+				  0, NULL, 0, NULL, 1, &src_mb);
+
+	dst_mb.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	dst_mb.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	dst_mb.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	dst_mb.dstAccessMask = 0;
+	table->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
+				  0, NULL, 0, NULL, 1, &dst_mb);
 
 	table->EndCommandBuffer(data->cmd_buffer);
+
+	/* ------------------------------------------------------ */
 
 	VkSubmitInfo submit_info;
 	submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1421,9 +1425,9 @@ static VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
 			for (int inst = 0; inst < inst_count; ++inst) {
 				struct vk_surf_data *surf_data =
 					FindSurfaceData(&inst_table[inst],
-							swap->surface);
+							swap->surf);
 				if (surf_data != NULL &&
-				    surf_data->surface == swap->surface) {
+				    surf_data->surf == swap->surf) {
 					window = surf_data->hwnd;
 				}
 			}
@@ -1455,13 +1459,12 @@ static VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
 /* ======================================================================== */
 
 static VkResult VKAPI OBS_GetSwapchainImagesKHR(VkDevice device,
-						VkSwapchainKHR swap,
+						VkSwapchainKHR sc,
 						uint32_t *count,
 						VkImage *images)
 {
 	VkLayerDispatchTable *table = GetDeviceDispatchTable(TOKEY(device));
-	VkResult res =
-		table->GetSwapchainImagesKHR(device, swap, count, images);
+	VkResult res = table->GetSwapchainImagesKHR(device, sc, count, images);
 	return res;
 }
 
