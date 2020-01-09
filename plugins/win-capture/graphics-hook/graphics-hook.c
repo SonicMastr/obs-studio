@@ -793,8 +793,8 @@ void capture_free(void)
 	active = false;
 }
 
-BOOL Init_VulkanLayer();
-BOOL Shutdown_VulkanLayer();
+BOOL init_vk_layer();
+BOOL shutdown_vk_layer();
 
 BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID unused1)
 {
@@ -825,10 +825,10 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID unused1)
 			return false;
 		}
 #if COMPILE_VULKAN_HOOK
-		if (!Init_VulkanLayer()) {
+		if (!init_vk_layer()) {
 			return false;
 		}
-#endif //COMPILE_VULKAN_HOOK
+#endif
 		/* this prevents the library from being automatically unloaded
 		 * by the next FreeLibrary call */
 		GetModuleFileNameW(hinst, name, MAX_PATH);
@@ -849,8 +849,8 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID unused1)
 			CloseHandle(capture_thread);
 		}
 #if COMPILE_VULKAN_HOOK
-		Shutdown_VulkanLayer();
-#endif //COMPILE_VULKAN_HOOK
+		shutdown_vk_layer();
+#endif
 		free_hook();
 	}
 
