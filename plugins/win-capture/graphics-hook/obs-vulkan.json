@@ -8,7 +8,7 @@
         "implementation_version": "1",
         "description": "Open Broadcaster Software hook",
 	    "functions": {
-		  "vkNegotiateLoaderLayerInterfaceVersion": "OBS_NegotiateLoaderLayerInterfaceVersion",
+		  "vkNegotiateLoaderLayerInterfaceVersion": "OBS_Negotiate",
 		  "vkGetInstanceProcAddr": "OBS_GetInstanceProcAddr",
 		  "vkGetDeviceProcAddr": "OBS_GetDeviceProcAddr"
 		},

@@ -1278,21 +1278,145 @@ static void VKAPI OBS_DestroySwapchainKHR(VkDevice device,
 	dispatch_table->DestroySwapchainKHR(device, swapchain, allocator);
 }
 
+/* ======================================================================== */
+
+static void vk_capture(struct vk_data *data, VkLayerDispatchTable *table,
+		       struct swap_data *swap, uint32_t idx,
+		       const VkPresentInfoKHR *info)
+{
+	VkResult res = VK_SUCCESS;
+
+	VkCommandBufferBeginInfo begin_info;
+	begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	begin_info.pNext = NULL;
+	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	begin_info.pInheritanceInfo = NULL;
+
+	/* do image copy */
+	res = table->BeginCommandBuffer(data->cmd_buffer, &begin_info);
+	DbgOutRes("# OBS_Layer # BeginCommandBuffer %s\n", res);
+
+	VkImage cur_backbuffer = swap->swap_images[info->pImageIndices[idx]];
+
+	/* transition cur_backbuffer to transfer source state */
+	VkImageMemoryBarrier present_mem_barrier;
+	present_mem_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	present_mem_barrier.pNext = NULL;
+	present_mem_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	present_mem_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	present_mem_barrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	present_mem_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	present_mem_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	present_mem_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	present_mem_barrier.image = cur_backbuffer;
+	present_mem_barrier.subresourceRange.aspectMask =
+		VK_IMAGE_ASPECT_COLOR_BIT;
+	present_mem_barrier.subresourceRange.baseMipLevel = 0;
+	present_mem_barrier.subresourceRange.levelCount = 1;
+	present_mem_barrier.subresourceRange.baseArrayLayer = 0;
+	present_mem_barrier.subresourceRange.layerCount = 1;
+
+	/* transition exportedTexture to transfer dest state */
+	VkImageMemoryBarrier dst_mem_barrier;
+	dst_mem_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	dst_mem_barrier.pNext = NULL;
+	dst_mem_barrier.srcAccessMask = 0;
+	dst_mem_barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	dst_mem_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	dst_mem_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	dst_mem_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	dst_mem_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	dst_mem_barrier.image = swap->export_image;
+	dst_mem_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	dst_mem_barrier.subresourceRange.baseMipLevel = 0;
+	dst_mem_barrier.subresourceRange.levelCount = 1;
+	dst_mem_barrier.subresourceRange.baseArrayLayer = 0;
+	dst_mem_barrier.subresourceRange.layerCount = 1;
+
+	VkPipelineStageFlags src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
+	VkPipelineStageFlags dst_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
+
+	table->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
+				  0, NULL, 0, NULL, 1, &present_mem_barrier);
+
+	table->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
+				  0, NULL, 0, NULL, 1, &dst_mem_barrier);
+
+	/* copy cur_backbuffer's content to our interop image */
+
+	VkImageCopy cpy;
+	cpy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	cpy.srcSubresource.mipLevel = 0;
+	cpy.srcSubresource.baseArrayLayer = 0;
+	cpy.srcSubresource.layerCount = 1;
+	cpy.srcOffset.x = 0;
+	cpy.srcOffset.y = 0;
+	cpy.srcOffset.z = 0;
+	cpy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	cpy.dstSubresource.mipLevel = 0;
+	cpy.dstSubresource.baseArrayLayer = 0;
+	cpy.dstSubresource.layerCount = 1;
+	cpy.dstOffset.x = 0;
+	cpy.dstOffset.y = 0;
+	cpy.dstOffset.z = 0;
+	cpy.extent.width = swap->img_extent.width;
+	cpy.extent.height = swap->img_extent.height;
+	cpy.extent.depth = 1;
+	table->CmdCopyImage(data->cmd_buffer, cur_backbuffer,
+			    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			    swap->export_image,
+			    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cpy);
+
+	/* Restore the swap chain image layout to what it was before.  This may
+	 * not be strictly needed, but it is generally good to restore things
+	 * to their original state.  */
+	present_mem_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	present_mem_barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	present_mem_barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	present_mem_barrier.dstAccessMask = 0;
+	table->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
+				  0, NULL, 0, NULL, 1, &present_mem_barrier);
+
+	dst_mem_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	dst_mem_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	dst_mem_barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	dst_mem_barrier.dstAccessMask = 0;
+	table->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
+				  0, NULL, 0, NULL, 1, &dst_mem_barrier);
+
+	table->EndCommandBuffer(data->cmd_buffer);
+
+	VkSubmitInfo submit_info;
+	submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submit_info.pNext = NULL;
+	submit_info.waitSemaphoreCount = 0;
+	submit_info.pWaitSemaphores = NULL;
+	submit_info.pWaitDstStageMask = NULL;
+	submit_info.commandBufferCount = 1;
+	submit_info.pCommandBuffers = &data->cmd_buffer;
+	submit_info.signalSemaphoreCount = 0;
+	submit_info.pSignalSemaphores = NULL;
+
+	VkFence null_fence = {VK_NULL_HANDLE};
+
+	res = table->QueueSubmit(data->queue, 1, &submit_info, null_fence);
+	DbgOutRes("# OBS_Layer # QueueSubmit %s\n", res);
+}
+
 static VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
 					  const VkPresentInfoKHR *info)
 {
-	VkResult res = VK_SUCCESS;
 	struct vk_data *data = get_device_data(TOKEY(queue));
-	VkLayerDispatchTable *dispatch_table = &data->dispatch_table;
+	VkLayerDispatchTable *table = &data->dispatch_table;
+
 	DbgOut2("# OBS_Layer # QueuePresentKHR called on "
 		"devicekey %p, swapchaincount %d\n",
-		dispatch_table, info->swapCount);
+		table, info->swapCount);
 
 	for (uint32_t i = 0; i < info->swapchainCount; ++i) {
 		struct swap_data *swap =
 			get_swap_data(data, info->pSwapchains[i]);
 		if (hooked) {
-
 			HWND window = NULL;
 			for (int inst = 0; inst < inst_count; ++inst) {
 				struct vk_surf_data *surf_data =
@@ -1303,215 +1427,53 @@ static VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
 					window = surf_data->hwnd;
 				}
 			}
-			if (window != NULL && !swap->captured) {
-				if (vk_shtex_init_window(data)) {
-					if (vk_shtex_init_d3d11(data)) {
-						if (vk_shtex_init_d3d11_tex(
-							    data, swap)) {
-							if (vk_shtex_init_vulkan_tex(
-								    data,
-								    swap)) {
-								swap->captured = capture_init_shtex(
-									&swap->shtex_info,
-									window,
-									swap->img_extent
-										.width,
-									swap->img_extent
-										.height,
-									swap->img_extent
-										.width,
-									swap->img_extent
-										.height,
-									(uint32_t)swap
-										->format,
-									false,
-									(uintptr_t)swap
-										->handle);
-							}
-						}
-					}
-				}
+
+			if (window != NULL && !swap->captured &&
+			    vk_shtex_init_window(data) &&
+			    vk_shtex_init_d3d11(data) &&
+			    vk_shtex_init_d3d11_tex(data, swap) &&
+			    vk_shtex_init_vulkan_tex(data, swap)) {
+				swap->captured = capture_init_shtex(
+					&swap->shtex_info, window,
+					swap->img_extent.width,
+					swap->img_extent.height,
+					swap->img_extent.width,
+					swap->img_extent.height,
+					(uint32_t)swap->format, false,
+					(uintptr_t)swap->handle);
 			}
 		}
 
 		if (swap->captured) {
-			VkCommandBufferBeginInfo begin_info;
-			begin_info.sType =
-				VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-			begin_info.pNext = NULL;
-			begin_info.flags =
-				VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-			begin_info.pInheritanceInfo = NULL;
-
-			/* do image copy */
-			res = dispatch_table->BeginCommandBuffer(
-				data->cmd_buffer, &begin_info);
-			DbgOutRes("# OBS_Layer # BeginCommandBuffer %s\n", res);
-
-			VkImage cur_backbuffer =
-				swap->swap_images[info->pImageIndices[i]];
-
-			/* transition cur_backbuffer to transfer source state */
-			VkImageMemoryBarrier present_mem_barrier;
-			present_mem_barrier.sType =
-				VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-			present_mem_barrier.pNext = NULL;
-			present_mem_barrier.srcAccessMask =
-				VK_ACCESS_TRANSFER_WRITE_BIT;
-			present_mem_barrier.dstAccessMask =
-				VK_ACCESS_TRANSFER_READ_BIT;
-			present_mem_barrier.oldLayout =
-				VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-			present_mem_barrier.newLayout =
-				VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-			present_mem_barrier.srcQueueFamilyIndex =
-				VK_QUEUE_FAMILY_IGNORED;
-			present_mem_barrier.dstQueueFamilyIndex =
-				VK_QUEUE_FAMILY_IGNORED;
-			present_mem_barrier.image = cur_backbuffer;
-			present_mem_barrier.subresourceRange.aspectMask =
-				VK_IMAGE_ASPECT_COLOR_BIT;
-			present_mem_barrier.subresourceRange.baseMipLevel = 0;
-			present_mem_barrier.subresourceRange.levelCount = 1;
-			present_mem_barrier.subresourceRange.baseArrayLayer = 0;
-			present_mem_barrier.subresourceRange.layerCount = 1;
-
-			/* transition exportedTexture to transfer dest state */
-			VkImageMemoryBarrier dst_mem_barrier;
-			dst_mem_barrier.sType =
-				VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-			dst_mem_barrier.pNext = NULL;
-			dst_mem_barrier.srcAccessMask = 0;
-			dst_mem_barrier.dstAccessMask =
-				VK_ACCESS_TRANSFER_WRITE_BIT;
-			dst_mem_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			dst_mem_barrier.newLayout =
-				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			dst_mem_barrier.srcQueueFamilyIndex =
-				VK_QUEUE_FAMILY_IGNORED;
-			dst_mem_barrier.dstQueueFamilyIndex =
-				VK_QUEUE_FAMILY_IGNORED;
-			dst_mem_barrier.image = swap->export_image;
-			dst_mem_barrier.subresourceRange.aspectMask =
-				VK_IMAGE_ASPECT_COLOR_BIT;
-			dst_mem_barrier.subresourceRange.baseMipLevel = 0;
-			dst_mem_barrier.subresourceRange.levelCount = 1;
-			dst_mem_barrier.subresourceRange.baseArrayLayer = 0;
-			dst_mem_barrier.subresourceRange.layerCount = 1;
-
-			VkPipelineStageFlags src_stages =
-				VK_PIPELINE_STAGE_TRANSFER_BIT;
-			VkPipelineStageFlags dst_stages =
-				VK_PIPELINE_STAGE_TRANSFER_BIT;
-
-			dispatch_table->CmdPipelineBarrier(
-				data->cmd_buffer, src_stages, dst_stages, 0, 0,
-				NULL, 0, NULL, 1, &present_mem_barrier);
-
-			dispatch_table->CmdPipelineBarrier(
-				data->cmd_buffer, src_stages, dst_stages, 0, 0,
-				NULL, 0, NULL, 1, &dst_mem_barrier);
-
-			/* copy cur_backbuffer's content to our interop
-			 * image */
-
-			VkImageCopy cpy;
-			cpy.srcSubresource.aspectMask =
-				VK_IMAGE_ASPECT_COLOR_BIT;
-			cpy.srcSubresource.mipLevel = 0;
-			cpy.srcSubresource.baseArrayLayer = 0;
-			cpy.srcSubresource.layerCount = 1;
-			cpy.srcOffset.x = 0;
-			cpy.srcOffset.y = 0;
-			cpy.srcOffset.z = 0;
-			cpy.dstSubresource.aspectMask =
-				VK_IMAGE_ASPECT_COLOR_BIT;
-			cpy.dstSubresource.mipLevel = 0;
-			cpy.dstSubresource.baseArrayLayer = 0;
-			cpy.dstSubresource.layerCount = 1;
-			cpy.dstOffset.x = 0;
-			cpy.dstOffset.y = 0;
-			cpy.dstOffset.z = 0;
-			cpy.extent.width = swap->img_extent.width;
-			cpy.extent.height = swap->img_extent.height;
-			cpy.extent.depth = 1;
-			dispatch_table->CmdCopyImage(
-				data->cmd_buffer, cur_backbuffer,
-				VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-				swap->export_image,
-				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cpy);
-
-			/* Restore the swap chain image layout to what it was
-			 * before.  This may not be strictly needed, but it is
-			 * generally good to restore things to their original
-			 * state.  */
-			present_mem_barrier.oldLayout =
-				VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-			present_mem_barrier.newLayout =
-				VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-			present_mem_barrier.srcAccessMask =
-				VK_ACCESS_TRANSFER_READ_BIT;
-			present_mem_barrier.dstAccessMask = 0;
-			dispatch_table->CmdPipelineBarrier(
-				data->cmd_buffer, src_stages, dst_stages, 0, 0,
-				NULL, 0, NULL, 1, &present_mem_barrier);
-
-			dst_mem_barrier.oldLayout =
-				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			dst_mem_barrier.newLayout =
-				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			dst_mem_barrier.srcAccessMask =
-				VK_ACCESS_TRANSFER_READ_BIT;
-			dst_mem_barrier.dstAccessMask = 0;
-			dispatch_table->CmdPipelineBarrier(
-				data->cmd_buffer, src_stages, dst_stages, 0, 0,
-				NULL, 0, NULL, 1, &dst_mem_barrier);
-
-			dispatch_table->EndCommandBuffer(data->cmd_buffer);
-
-			VkSubmitInfo submit_info;
-			submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-			submit_info.pNext = NULL;
-			submit_info.waitSemaphoreCount = 0;
-			submit_info.pWaitSemaphores = NULL;
-			submit_info.pWaitDstStageMask = NULL;
-			submit_info.commandBufferCount = 1;
-			submit_info.pCommandBuffers = &data->cmd_buffer;
-			submit_info.signalSemaphoreCount = 0;
-			submit_info.pSignalSemaphores = NULL;
-
-			VkFence null_fence = {VK_NULL_HANDLE};
-
-			res = dispatch_table->QueueSubmit(
-				data->queue, 1, &submit_info, null_fence);
-			DbgOutRes("# OBS_Layer # QueueSubmit %s\n", res);
+			vk_capture(data, table, swap, i, info);
 		}
 	}
 
-	return dispatch_table->QueuePresentKHR(queue, info);
+	return table->QueuePresentKHR(queue, info);
 }
 
+/* ======================================================================== */
+
 static VkResult VKAPI OBS_GetSwapchainImagesKHR(VkDevice device,
-						VkSwapchainKHR swapchain,
+						VkSwapchainKHR swap,
 						uint32_t *count,
 						VkImage *images)
 {
-	VkLayerDispatchTable *dispatch_table =
-		GetDeviceDispatchTable(TOKEY(device));
-	VkResult res = dispatch_table->GetSwapchainImagesKHR(device, swapchain,
-							     count, images);
+	VkLayerDispatchTable *table = GetDeviceDispatchTable(TOKEY(device));
+	VkResult res =
+		table->GetSwapchainImagesKHR(device, swap, count, images);
 	return res;
 }
 
 static VkResult VKAPI OBS_CreateWin32SurfaceKHR(
 	VkInstance inst, const VkWin32SurfaceCreateInfoKHR *info,
-	const VkAllocationCallbacks *allocator, VkSurfaceKHR *surf)
+	const VkAllocationCallbacks *ac, VkSurfaceKHR *surf)
 {
 	struct vk_inst_data *inst_data = GetInstanceData(TOKEY(inst));
 	DbgOut("# OBS_Layer # CreateWin32SurfaceKHR\n");
 
 	VkResult res = inst_data->dispatch_table.CreateWin32SurfaceKHR(
-		inst, info, allocator, surf);
+		inst, info, ac, surf);
 	if (NULL != surf && VK_NULL_HANDLE != *surf) {
 		struct vk_surf_data *surf_data =
 			FindSurfaceData(inst_data, *surf);
@@ -1531,6 +1493,7 @@ EXPORT VkFunc VKAPI OBS_GetDeviceProcAddr(VkDevice dev, const char *name)
 	DbgOutProcAddr(
 		"# OBS_Layer # vkGetDeviceProcAddr [%s] called on device %p\n",
 		name, dev);
+
 	GETPROCADDR(GetDeviceProcAddr);
 	GETPROCADDR(EnumerateDeviceExtensionProperties);
 	GETPROCADDR(CreateDevice);
@@ -1540,19 +1503,18 @@ EXPORT VkFunc VKAPI OBS_GetDeviceProcAddr(VkDevice dev, const char *name)
 	GETPROCADDR(QueuePresentKHR);
 	GETPROCADDR(GetSwapchainImagesKHR);
 
-	VkLayerDispatchTable *dispatch_table =
-		GetDeviceDispatchTable(TOKEY(dev));
-	if (dispatch_table->GetDeviceProcAddr == NULL)
+	VkLayerDispatchTable *table = GetDeviceDispatchTable(TOKEY(dev));
+	if (table->GetDeviceProcAddr == NULL)
 		return NULL;
-	return dispatch_table->GetDeviceProcAddr(dev, name);
+	return table->GetDeviceProcAddr(dev, name);
 }
 
-EXPORT VkFunc VKAPI OBS_GetInstanceProcAddr(VkInstance instance,
-					    const char *name)
+EXPORT VkFunc VKAPI OBS_GetInstanceProcAddr(VkInstance inst, const char *name)
 {
-	DbgOutProcAddr(
-		"# OBS_Layer # vkGetInstanceProcAddr [%s] called on instance %p\n",
-		name, instance);
+	DbgOutProcAddr("# OBS_Layer # vkGetInstanceProcAddr [%s] "
+		       "called on instance %p\n",
+		       name, instance);
+
 	/* instance chain functions we intercept */
 	GETPROCADDR(GetInstanceProcAddr);
 	GETPROCADDR(EnumerateInstanceLayerProperties);
@@ -1568,48 +1530,40 @@ EXPORT VkFunc VKAPI OBS_GetInstanceProcAddr(VkInstance instance,
 	GETPROCADDR(CreateDevice);
 	GETPROCADDR(DestroyDevice);
 
-	VkLayerInstanceDispatchTable *dispatch_table =
-		GetInstanceDispatchTable(TOKEY(instance));
-	if (dispatch_table->GetInstanceProcAddr == NULL)
+	VkLayerInstanceDispatchTable *table =
+		GetInstanceDispatchTable(TOKEY(inst));
+	if (table->GetInstanceProcAddr == NULL)
 		return NULL;
-	return dispatch_table->GetInstanceProcAddr(instance, name);
+	return table->GetInstanceProcAddr(inst, name);
 }
 
-static VkFunc VKAPI OBS_GetPhysicalDeviceProcAddr(VkInstance instance,
-						  const char *name)
+#undef GETPROCADDR
+
+static VkFunc VKAPI vk_get_phys_proc(VkInstance inst, const char *name)
 {
-	VkLayerInstanceDispatchTable *instdt =
-		GetInstanceDispatchTable(TOKEY(instance));
-	if (instdt->GetPhysicalDeviceProcAddr == NULL) {
+	VkLayerInstanceDispatchTable *table =
+		GetInstanceDispatchTable(TOKEY(inst));
+	if (table->GetPhysicalDeviceProcAddr == NULL) {
 		return NULL;
 	}
 
-	return instdt->GetPhysicalDeviceProcAddr(instance, name);
+	return table->GetPhysicalDeviceProcAddr(inst, name);
 }
 
-EXPORT VkFunc VKAPI OBS_layerGetPhysicalDeviceProcAddr(VkInstance instance,
-						       const char *name)
+EXPORT VkResult VKAPI OBS_Negotiate(VkNegotiateLayerInterface *nli)
 {
-	return OBS_GetPhysicalDeviceProcAddr(instance, name);
-}
-
-EXPORT VkResult VKAPI OBS_NegotiateLoaderLayerInterfaceVersion(
-	VkNegotiateLayerInterface *layer_interface)
-{
-	if (layer_interface->loaderLayerInterfaceVersion >= 2) {
-		layer_interface->sType = LAYER_NEGOTIATE_INTERFACE_STRUCT;
-		layer_interface->pNext = NULL;
-		layer_interface->pfnGetInstanceProcAddr =
-			OBS_GetInstanceProcAddr;
-		layer_interface->pfnGetDeviceProcAddr = OBS_GetDeviceProcAddr;
-		layer_interface->pfnGetPhysicalDeviceProcAddr =
-			OBS_layerGetPhysicalDeviceProcAddr;
+	if (nli->loaderLayerInterfaceVersion >= 2) {
+		nli->sType = LAYER_NEGOTIATE_INTERFACE_STRUCT;
+		nli->pNext = NULL;
+		nli->pfnGetInstanceProcAddr = OBS_GetInstanceProcAddr;
+		nli->pfnGetDeviceProcAddr = OBS_GetDeviceProcAddr;
+		nli->pfnGetPhysicalDeviceProcAddr = vk_get_phys_proc;
 	}
 
-	if (layer_interface->loaderLayerInterfaceVersion >
-	    CURRENT_LOADER_LAYER_INTERFACE_VERSION) {
-		layer_interface->loaderLayerInterfaceVersion =
-			CURRENT_LOADER_LAYER_INTERFACE_VERSION;
+	const uint32_t cur_ver = CURRENT_LOADER_LAYER_INTERFACE_VERSION;
+
+	if (nli->loaderLayerInterfaceVersion > cur_ver) {
+		nli->loaderLayerInterfaceVersion = cur_ver;
 	}
 
 	return VK_SUCCESS;
