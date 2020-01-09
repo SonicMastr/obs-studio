@@ -136,7 +136,7 @@ static struct vk_data *get_device_data(void *dev)
 	return data;
 }
 
-static inline VkLayerDispatchTable *GetDeviceDispatchTable(void *dev)
+static inline VkLayerDispatchTable *get_table(void *dev)
 {
 	struct vk_data *data = get_device_data(dev);
 	return &data->dispatch_table;
@@ -197,13 +197,13 @@ struct vk_surf_data {
 struct vk_inst_data {
 	VkLayerInstanceDispatchTable dispatch_table;
 	uint32_t phy_device_count;
-	VkPhysicalDevice *availablePhysicalDevices[MAX_PHYSICALDEVICE_COUNT];
+	VkPhysicalDevice *phy_devices[MAX_PHYSICALDEVICE_COUNT];
 
 	struct vk_surf_data surfaces[MAX_SURFACE_PER_INSTANCE];
 };
 
-static struct vk_surf_data *FindSurfaceData(struct vk_inst_data *inst_data,
-					    VkSurfaceKHR surf)
+static struct vk_surf_data *find_surf_data(struct vk_inst_data *inst_data,
+					   VkSurfaceKHR surf)
 {
 	int idx = MAX_SURFACE_PER_INSTANCE;
 	for (int i = 0; i < MAX_SURFACE_PER_INSTANCE; ++i) {
@@ -219,7 +219,7 @@ static struct vk_surf_data *FindSurfaceData(struct vk_inst_data *inst_data,
 		return &inst_data->surfaces[idx];
 	}
 
-	DbgOut("# OBS_Layer # FindSurfaceData failed, no more free slot\n");
+	DbgOut("# OBS_Layer # find_surf_data failed, no more free slot\n");
 	return NULL;
 }
 
@@ -229,7 +229,7 @@ static struct vk_inst_data inst_table[MAX_INSTANCE_COUNT];
 static void *inst_keys[MAX_INSTANCE_COUNT];
 static uint8_t inst_count;
 
-static inline uint8_t GetInstanceIndex(void *inst)
+static inline uint8_t get_inst_idx(void *inst)
 {
 	for (uint8_t i = 0; i < inst_count; ++i) {
 		if (inst_keys[i] == inst) {
@@ -239,12 +239,12 @@ static inline uint8_t GetInstanceIndex(void *inst)
 	return UINT8_MAX;
 };
 
-static struct vk_inst_data *GetInstanceData(void *inst)
+static struct vk_inst_data *get_inst_data(void *inst)
 {
 	EnterCriticalSection(&mutex);
 
 	struct vk_inst_data *inst_data = NULL;
-	uint8_t idx = GetInstanceIndex(inst);
+	uint8_t idx = get_inst_idx(inst);
 	if (idx < inst_count) {
 		inst_data = &inst_table[idx];
 	} else if (inst_count >= MAX_INSTANCE_COUNT - 1) {
@@ -260,16 +260,16 @@ static struct vk_inst_data *GetInstanceData(void *inst)
 	return inst_data;
 }
 
-static VkLayerInstanceDispatchTable *GetInstanceDispatchTable(void *inst)
+static VkLayerInstanceDispatchTable *get_inst_table(void *inst)
 {
-	struct vk_inst_data *inst_data = GetInstanceData(inst);
+	struct vk_inst_data *inst_data = get_inst_data(inst);
 	return &inst_data->dispatch_table;
 }
 
 static void remove_instance(void *inst)
 {
 	EnterCriticalSection(&mutex);
-	uint8_t idx = GetInstanceIndex(inst);
+	uint8_t idx = get_inst_idx(inst);
 
 	if (idx > 0 && idx < inst_count - 1) {
 		inst_keys[idx] = inst_keys[inst_count - 1];
@@ -286,9 +286,9 @@ static void remove_instance(void *inst)
 #define DUMMY_WINDOW_CLASS_NAME L"graphics_hook_vk_dummy_window"
 
 /* clang-format off */
-static const GUID GUID_IDXGIFactory1 =
+static const GUID dxgi_factory1_guid =
 {0x770aae78, 0xf26f, 0x4dba, {0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87}};
-static const GUID GUID_IDXGIResource =
+static const GUID dxgi_resource_guid =
 {0x035f3ab4, 0x482e, 0x4e50, {0xb4, 0x1f, 0x8a, 0x7f, 0x8b, 0xd8, 0x96, 0x0b}};
 /* clang-format on */
 
@@ -360,7 +360,7 @@ static inline bool vk_shtex_init_d3d11(struct vk_data *data)
 		return false;
 	}
 
-	hr = create_factory(&GUID_IDXGIFactory1, (void **)&factory);
+	hr = create_factory(&dxgi_factory1_guid, (void **)&factory);
 	if (FAILED(hr)) {
 		flog_hr("failed to create factory", hr);
 		return false;
@@ -419,7 +419,7 @@ static inline bool vk_shtex_init_d3d11_tex(struct vk_data *dev_data,
 	}
 
 	hr = ID3D11Device_QueryInterface(
-		swpch_data->d3d11_tex, &GUID_IDXGIResource, (void **)&dxgi_res);
+		swpch_data->d3d11_tex, &dxgi_resource_guid, (void **)&dxgi_res);
 	if (FAILED(hr)) {
 		flog_hr("failed to get IDXGIResource", hr);
 		return false;
@@ -442,16 +442,16 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 
 	VkLayerDispatchTable *dispatch_table = &data->dispatch_table;
 
-	VkExternalMemoryImageCreateInfoKHR externalMemoryImageInfo;
-	externalMemoryImageInfo.sType =
+	VkExternalMemoryImageCreateInfoKHR external_mem_image_info;
+	external_mem_image_info.sType =
 		VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO_KHR;
-	externalMemoryImageInfo.pNext = NULL;
-	externalMemoryImageInfo.handleTypes =
+	external_mem_image_info.pNext = NULL;
+	external_mem_image_info.handleTypes =
 		VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_KMT_BIT;
 
 	VkImageCreateInfo create_info;
 	create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-	create_info.pNext = &externalMemoryImageInfo;
+	create_info.pNext = &external_mem_image_info;
 	create_info.flags = 0;
 	create_info.imageType = VK_IMAGE_TYPE_2D;
 	create_info.format = swap->format;
@@ -514,7 +514,7 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 	uint32_t mem_type_idx = 0;
 
 	VkLayerInstanceDispatchTable *inst_dispatch =
-		GetInstanceDispatchTable(TOKEY(data->phy_device));
+		get_inst_table(TOKEY(data->phy_device));
 
 	VkPhysicalDeviceMemoryProperties mem_props;
 	inst_dispatch->GetPhysicalDeviceMemoryProperties(data->phy_device,
@@ -694,7 +694,7 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *info,
 	DbgOutRes("# OBS_Layer # CreateInstance %s\n", res);
 
 	VkLayerInstanceDispatchTable *dispatch_table =
-		GetInstanceDispatchTable(TOKEY(*p_inst));
+		get_inst_table(TOKEY(*p_inst));
 
 	/* fetch our own dispatch table for the functions we need, into the
 	 * next layer */
@@ -730,7 +730,7 @@ EXPORT VkResult VKAPI
 OBS_DestroyInstance(VkInstance instance, const VkAllocationCallbacks *allocator)
 {
 	VkLayerInstanceDispatchTable *dispatch_table =
-		GetInstanceDispatchTable(TOKEY(instance));
+		get_inst_table(TOKEY(instance));
 	dispatch_table->DestroyInstance(instance, allocator);
 	remove_instance(instance);
 	return VK_SUCCESS;
@@ -779,7 +779,7 @@ static VkResult VKAPI OBS_EnumerateDeviceExtensionProperties(
 			return VK_SUCCESS;
 
 		VkLayerInstanceDispatchTable *disp =
-			GetInstanceDispatchTable(TOKEY(phy_device));
+			get_inst_table(TOKEY(phy_device));
 		return disp->EnumerateDeviceExtensionProperties(
 			phy_device, name, p_count, props);
 	}
@@ -802,7 +802,7 @@ static VkResult VKAPI OBS_EnumerateDeviceExtensionProperties(
 static VkResult VKAPI OBS_EnumeratePhysicalDevices(
 	VkInstance instance, uint32_t *p_count, VkPhysicalDevice *phy_devices)
 {
-	struct vk_inst_data *inst_data = GetInstanceData(TOKEY(instance));
+	struct vk_inst_data *inst_data = get_inst_data(TOKEY(instance));
 	VkLayerInstanceDispatchTable *dispatch_table =
 		&inst_data->dispatch_table;
 
@@ -821,7 +821,7 @@ static VkResult VKAPI OBS_EnumeratePhysicalDevices(
 
 		if (phy_devices != NULL) {
 			for (uint32_t i = 0; i < physical_count; ++i) {
-				inst_data->availablePhysicalDevices[i] =
+				inst_data->phy_devices[i] =
 					(VkPhysicalDevice *)phy_devices[i];
 			}
 		}
@@ -969,7 +969,7 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 {
 	VkDeviceCreateInfo *create_info = (VkDeviceCreateInfo *)(info);
 	VkLayerInstanceDispatchTable *inst_disp =
-		GetInstanceDispatchTable(TOKEY(phy_device));
+		get_inst_table(TOKEY(phy_device));
 
 	if (!vk_init_req_extensions(phy_device, info, create_info, inst_disp)) {
 		/* TODO */
@@ -1423,9 +1423,8 @@ static VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
 		if (hooked) {
 			HWND window = NULL;
 			for (int inst = 0; inst < inst_count; ++inst) {
-				struct vk_surf_data *surf_data =
-					FindSurfaceData(&inst_table[inst],
-							swap->surf);
+				struct vk_surf_data *surf_data = find_surf_data(
+					&inst_table[inst], swap->surf);
 				if (surf_data != NULL &&
 				    surf_data->surf == swap->surf) {
 					window = surf_data->hwnd;
@@ -1463,7 +1462,7 @@ static VkResult VKAPI OBS_GetSwapchainImagesKHR(VkDevice device,
 						uint32_t *count,
 						VkImage *images)
 {
-	VkLayerDispatchTable *table = GetDeviceDispatchTable(TOKEY(device));
+	VkLayerDispatchTable *table = get_table(TOKEY(device));
 	VkResult res = table->GetSwapchainImagesKHR(device, sc, count, images);
 	return res;
 }
@@ -1472,14 +1471,14 @@ static VkResult VKAPI OBS_CreateWin32SurfaceKHR(
 	VkInstance inst, const VkWin32SurfaceCreateInfoKHR *info,
 	const VkAllocationCallbacks *ac, VkSurfaceKHR *surf)
 {
-	struct vk_inst_data *inst_data = GetInstanceData(TOKEY(inst));
+	struct vk_inst_data *inst_data = get_inst_data(TOKEY(inst));
 	DbgOut("# OBS_Layer # CreateWin32SurfaceKHR\n");
 
 	VkResult res = inst_data->dispatch_table.CreateWin32SurfaceKHR(
 		inst, info, ac, surf);
 	if (NULL != surf && VK_NULL_HANDLE != *surf) {
 		struct vk_surf_data *surf_data =
-			FindSurfaceData(inst_data, *surf);
+			find_surf_data(inst_data, *surf);
 
 		surf_data->hinstance = info->hinstance;
 		surf_data->hwnd = info->hwnd;
@@ -1506,7 +1505,7 @@ EXPORT VkFunc VKAPI OBS_GetDeviceProcAddr(VkDevice dev, const char *name)
 	GETPROCADDR(QueuePresentKHR);
 	GETPROCADDR(GetSwapchainImagesKHR);
 
-	VkLayerDispatchTable *table = GetDeviceDispatchTable(TOKEY(dev));
+	VkLayerDispatchTable *table = get_table(TOKEY(dev));
 	if (table->GetDeviceProcAddr == NULL)
 		return NULL;
 	return table->GetDeviceProcAddr(dev, name);
@@ -1533,8 +1532,7 @@ EXPORT VkFunc VKAPI OBS_GetInstanceProcAddr(VkInstance inst, const char *name)
 	GETPROCADDR(CreateDevice);
 	GETPROCADDR(DestroyDevice);
 
-	VkLayerInstanceDispatchTable *table =
-		GetInstanceDispatchTable(TOKEY(inst));
+	VkLayerInstanceDispatchTable *table = get_inst_table(TOKEY(inst));
 	if (table->GetInstanceProcAddr == NULL)
 		return NULL;
 	return table->GetInstanceProcAddr(inst, name);
@@ -1544,8 +1542,7 @@ EXPORT VkFunc VKAPI OBS_GetInstanceProcAddr(VkInstance inst, const char *name)
 
 static VkFunc VKAPI vk_get_phys_proc(VkInstance inst, const char *name)
 {
-	VkLayerInstanceDispatchTable *table =
-		GetInstanceDispatchTable(TOKEY(inst));
+	VkLayerInstanceDispatchTable *table = get_inst_table(TOKEY(inst));
 	if (table->GetPhysicalDeviceProcAddr == NULL) {
 		return NULL;
 	}
