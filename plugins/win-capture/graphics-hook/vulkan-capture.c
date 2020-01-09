@@ -1587,9 +1587,6 @@ OBS_layerGetPhysicalDeviceProcAddr(VkInstance instance, const char *name)
 	return OBS_GetPhysicalDeviceProcAddr(instance, name);
 }
 
-static uint32_t loader_layer_if_version =
-	CURRENT_LOADER_LAYER_INTERFACE_VERSION;
-
 VK_LAYER_EXPORT VkResult VKAPI_CALL OBS_NegotiateLoaderLayerInterfaceVersion(
 	VkNegotiateLayerInterface *layer_interface)
 {
@@ -1603,12 +1600,8 @@ VK_LAYER_EXPORT VkResult VKAPI_CALL OBS_NegotiateLoaderLayerInterfaceVersion(
 			OBS_layerGetPhysicalDeviceProcAddr;
 	}
 
-	if (layer_interface->loaderLayerInterfaceVersion <
+	if (layer_interface->loaderLayerInterfaceVersion >
 	    CURRENT_LOADER_LAYER_INTERFACE_VERSION) {
-		loader_layer_if_version =
-			layer_interface->loaderLayerInterfaceVersion;
-	} else if (layer_interface->loaderLayerInterfaceVersion >
-		   CURRENT_LOADER_LAYER_INTERFACE_VERSION) {
 		layer_interface->loaderLayerInterfaceVersion =
 			CURRENT_LOADER_LAYER_INTERFACE_VERSION;
 	}
