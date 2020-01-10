@@ -79,7 +79,7 @@ struct vk_data {
 
 static struct swap_data *get_swap_data(struct vk_data *data, VkSwapchainKHR sc)
 {
-	for (int i = 0; i < MAX_SWAPCHAIN_PER_DEVICE; ++i) {
+	for (int i = 0; i < MAX_SWAPCHAIN_PER_DEVICE; i++) {
 		if (data->swaps[i].sc == sc) {
 			return &data->swaps[i];
 		}
@@ -90,7 +90,7 @@ static struct swap_data *get_swap_data(struct vk_data *data, VkSwapchainKHR sc)
 
 static struct swap_data *get_new_swap_data(struct vk_data *data)
 {
-	for (int i = 0; i < MAX_SWAPCHAIN_PER_DEVICE; ++i) {
+	for (int i = 0; i < MAX_SWAPCHAIN_PER_DEVICE; i++) {
 		if (data->swaps[i].surf == NULL && data->swaps[i].sc == NULL) {
 			return &data->swaps[i];
 		}
@@ -107,7 +107,7 @@ static uint8_t device_count;
 
 static inline uint8_t get_device_idx(VkDevice *dev)
 {
-	for (uint8_t i = 0; i < device_count; ++i) {
+	for (uint8_t i = 0; i < device_count; i++) {
 		if (devices[i] == dev) {
 			return i;
 		}
@@ -149,7 +149,7 @@ static void vk_remove_device(void *dev)
 	uint8_t idx = get_device_idx(dev);
 	struct vk_data *data = (struct vk_data *)(&devices[idx]);
 
-	for (int i = 0; i < MAX_SWAPCHAIN_PER_DEVICE; ++i) {
+	for (int i = 0; i < MAX_SWAPCHAIN_PER_DEVICE; i++) {
 		struct swap_data *swap = &data->swaps[i];
 
 		if (swap->export_image)
@@ -207,7 +207,7 @@ static struct vk_surf_data *find_surf_data(struct vk_inst_data *inst_data,
 					   VkSurfaceKHR surf)
 {
 	int idx = MAX_SURFACE_PER_INSTANCE;
-	for (int i = 0; i < MAX_SURFACE_PER_INSTANCE; ++i) {
+	for (int i = 0; i < MAX_SURFACE_PER_INSTANCE; i++) {
 		if (inst_data->surfaces[i].surf == surf) {
 			return &inst_data->surfaces[i];
 		} else if (inst_data->surfaces[i].surf == NULL &&
@@ -232,7 +232,7 @@ static uint8_t inst_count;
 
 static inline uint8_t get_inst_idx(void *inst)
 {
-	for (uint8_t i = 0; i < inst_count; ++i) {
+	for (uint8_t i = 0; i < inst_count; i++) {
 		if (inst_keys[i] == inst) {
 			return i;
 		}
@@ -618,10 +618,11 @@ bool shutdown_vk_layer()
 	return true;
 }
 
-EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *info,
+EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 					 const VkAllocationCallbacks *allocator,
 					 VkInstance *p_inst)
 {
+	VkInstanceCreateInfo *info = (void *)cinfo;
 	VkLayerInstanceCreateInfo *create_info = (void *)info->pNext;
 
 	/* step through the chain of pNext until we get to the link info */
@@ -792,26 +793,26 @@ static VkResult VKAPI OBS_EnumerateDeviceExtensionProperties(
 }
 
 static VkResult VKAPI OBS_EnumeratePhysicalDevices(
-	VkInstance instance, uint32_t *p_count, VkPhysicalDevice *phy_devices)
+	VkInstance inst, uint32_t *p_count, VkPhysicalDevice *phy_devices)
 {
-	struct vk_inst_data *inst_data = get_inst_data(TOKEY(instance));
+	struct vk_inst_data *inst_data = get_inst_data(TOKEY(inst));
 	VkLayerInstanceDispatchTable *table = &inst_data->table;
 
 	VkResult res =
-		table->EnumeratePhysicalDevices(instance, p_count, phy_devices);
+		table->EnumeratePhysicalDevices(inst, p_count, phy_devices);
+	uint32_t count = *p_count;
 
 	if (res == VK_SUCCESS) {
-		uint32_t physical_count = *p_count;
-		if (physical_count >= MAX_PHYSICALDEVICE_COUNT) {
-			physical_count = MAX_PHYSICALDEVICE_COUNT;
+		if (count >= MAX_PHYSICALDEVICE_COUNT) {
+			count = MAX_PHYSICALDEVICE_COUNT;
 			DbgOut2("# OBS_Layer # Out of physical device "
 				"storage for instance %p, clamping to %d\n",
-				instance, physical_count);
+				inst, physical_count);
 		}
-		inst_data->phy_device_count = physical_count;
+		inst_data->phy_device_count = count;
 
 		if (phy_devices != NULL) {
-			for (uint32_t i = 0; i < physical_count; ++i) {
+			for (uint32_t i = 0; i < count; i++) {
 				inst_data->phy_devices[i] =
 					(VkPhysicalDevice *)phy_devices[i];
 			}
@@ -832,10 +833,6 @@ shared_tex_supported(VkLayerInstanceDispatchTable *table,
 	external_img_format.sType =
 		VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO_KHR;
 	external_img_format.pNext = NULL;
-#if 0
-	external_img_format.handleType =
-		VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT_KHR;
-#endif
 	external_img_format.handleType =
 		VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_KMT_BIT_KHR;
 
@@ -1405,7 +1402,7 @@ static VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
 			get_swap_data(data, info->pSwapchains[i]);
 		if (hooked) {
 			HWND window = NULL;
-			for (int inst = 0; inst < inst_count; ++inst) {
+			for (int inst = 0; inst < inst_count; inst++) {
 				struct vk_surf_data *surf_data = find_surf_data(
 					&inst_table[inst], swap->surf);
 				if (surf_data != NULL &&
