@@ -666,33 +666,40 @@ static void vk_enable_req_extensions(struct ext_spec *spec,
 	spec->names = new_names;
 }
 
+static inline bool is_link_info(VkLayerInstanceCreateInfo *lici)
+{
+	return lici->sType == VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO &&
+	       lici->function == VK_LAYER_LINK_INFO;
+}
+
 EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 					 const VkAllocationCallbacks *allocator,
 					 VkInstance *p_inst)
 {
 	VkInstanceCreateInfo *info = (void *)cinfo;
-	VkLayerInstanceCreateInfo *create_info = (void *)info->pNext;
 
-	/* step through the chain of pNext until we get to the link info */
-	while (create_info &&
-	       (create_info->sType !=
-			VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO ||
-		create_info->function != VK_LAYER_LINK_INFO)) {
-		create_info = (VkLayerInstanceCreateInfo *)create_info->pNext;
+	/* -------------------------------------------------------- */
+	/* step through chain until we get to the link info         */
+
+	VkLayerInstanceCreateInfo *lici = (void *)info->pNext;
+	while (lici && !is_link_info(lici)) {
+		lici = (VkLayerInstanceCreateInfo *)lici->pNext;
 	}
 
-	if (create_info == NULL) {
-		/* No loader instance create info */
+	if (lici == NULL) {
 		return VK_ERROR_INITIALIZATION_FAILED;
 	}
 
 	PFN_vkGetInstanceProcAddr gpa =
-		create_info->u.pLayerInfo->pfnNextGetInstanceProcAddr;
-	/* move chain on for next layer */
-	create_info->u.pLayerInfo = create_info->u.pLayerInfo->pNext;
+		lici->u.pLayerInfo->pfnNextGetInstanceProcAddr;
 
-	PFN_vkCreateInstance create =
-		(PFN_vkCreateInstance)gpa(VK_NULL_HANDLE, "vkCreateInstance");
+	/* -------------------------------------------------------- */
+	/* move chain on for next layer                             */
+
+	lici->u.pLayerInfo = lici->u.pLayerInfo->pNext;
+
+	/* -------------------------------------------------------- */
+	/* enable instance extensions we need                       */
 
 	struct ext_info req_ext[] = {
 		{.name = VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME},
@@ -703,35 +710,33 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 
 	vk_enable_req_extensions(get_ext_spec(info), req_ext, req_ext_count);
 
+	/* -------------------------------------------------------- */
+	/* create instance                                          */
+
+	PFN_vkCreateInstance create = (void *)gpa(NULL, "vkCreateInstance");
+
 	VkResult res = create(info, allocator, p_inst);
-	DbgOutRes("# OBS_Layer # CreateInstance %s\n", res);
+	VkInstance inst = *p_inst;
 
-	VkLayerInstanceDispatchTable *table = get_inst_table(TOKEY(*p_inst));
+	/* -------------------------------------------------------- */
+	/* fetch the functions we need                              */
 
-	/* fetch our own dispatch table for the functions we need, into the
-	 * next layer */
-	table->GetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)gpa(
-		*p_inst, "vkGetInstanceProcAddr");
-	table->DestroyInstance =
-		(PFN_vkDestroyInstance)gpa(*p_inst, "vkDestroyInstance");
-	table->EnumerateDeviceExtensionProperties =
-		(PFN_vkEnumerateDeviceExtensionProperties)gpa(
-			*p_inst, "vkEnumerateDeviceExtensionProperties");
-	table->EnumeratePhysicalDevices = (PFN_vkEnumeratePhysicalDevices)gpa(
-		*p_inst, "vkEnumeratePhysicalDevices");
-	table->CreateWin32SurfaceKHR = (PFN_vkCreateWin32SurfaceKHR)gpa(
-		*p_inst, "vkCreateWin32SurfaceKHR");
+	VkLayerInstanceDispatchTable *table = get_inst_table(TOKEY(inst));
 
-	table->GetPhysicalDeviceQueueFamilyProperties =
-		(PFN_vkGetPhysicalDeviceQueueFamilyProperties)gpa(
-			*p_inst, "vkGetPhysicalDeviceQueueFamilyProperties");
-	table->GetPhysicalDeviceMemoryProperties =
-		(PFN_vkGetPhysicalDeviceMemoryProperties)gpa(
-			*p_inst, "vkGetPhysicalDeviceMemoryProperties");
-	table->GetPhysicalDeviceImageFormatProperties2KHR =
-		(PFN_vkGetPhysicalDeviceImageFormatProperties2KHR)gpa(
-			*p_inst,
-			"vkGetPhysicalDeviceImageFormatProperties2KHR");
+#define GETADDR(x)                                     \
+	do {                                           \
+		table->x = (void *)gpa(inst, "vk" #x); \
+	} while (false)
+
+	GETADDR(GetInstanceProcAddr);
+	GETADDR(DestroyInstance);
+	GETADDR(EnumerateDeviceExtensionProperties);
+	GETADDR(EnumeratePhysicalDevices);
+	GETADDR(CreateWin32SurfaceKHR);
+	GETADDR(GetPhysicalDeviceQueueFamilyProperties);
+	GETADDR(GetPhysicalDeviceMemoryProperties);
+	GETADDR(GetPhysicalDeviceImageFormatProperties2KHR);
+#undef GETADDR
 
 	return res;
 }
