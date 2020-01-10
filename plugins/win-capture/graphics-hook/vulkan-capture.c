@@ -33,6 +33,7 @@
 #define MAX_INSTANCE_COUNT 16
 #define MAX_SURFACE_PER_INSTANCE 16
 #define MAX_DEVICE_COUNT 16
+#define MAX_QUEUES 16
 #define MAX_SWAPCHAIN_PER_DEVICE 16
 #define MAX_PHYSICALDEVICE_COUNT 16
 #define MAX_IMAGES_PER_SWAPCHAIN 16
@@ -440,7 +441,6 @@ static inline bool vk_shtex_init_d3d11_tex(struct vk_data *dev_data,
 static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 					    struct swap_data *swap)
 {
-
 	VkLayerDispatchTable *table = &data->table;
 
 	VkExternalMemoryImageCreateInfoKHR external_mem_image_info;
@@ -659,7 +659,7 @@ static void vk_enable_req_extensions(struct ext_spec *spec,
 	spec->names = new_names;
 }
 
-static inline bool is_link_info(VkLayerInstanceCreateInfo *lici)
+static inline bool is_inst_link_info(VkLayerInstanceCreateInfo *lici)
 {
 	return lici->sType == VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO &&
 	       lici->function == VK_LAYER_LINK_INFO;
@@ -675,7 +675,7 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 	/* step through chain until we get to the link info         */
 
 	VkLayerInstanceCreateInfo *lici = (void *)info->pNext;
-	while (lici && !is_link_info(lici)) {
+	while (lici && !is_inst_link_info(lici)) {
 		lici = (VkLayerInstanceCreateInfo *)lici->pNext;
 	}
 
@@ -817,7 +817,7 @@ static VkResult VKAPI OBS_EnumeratePhysicalDevices(
 	uint32_t count = *p_count;
 
 	if (res == VK_SUCCESS) {
-		if (count >= MAX_PHYSICALDEVICE_COUNT) {
+		if (count > MAX_PHYSICALDEVICE_COUNT) {
 			count = MAX_PHYSICALDEVICE_COUNT;
 			DbgOut2("# OBS_Layer # Out of physical device "
 				"storage for instance %p, clamping to %d\n",
@@ -925,53 +925,37 @@ static bool vk_init_req_extensions(VkPhysicalDevice phy_device,
 	return true;
 }
 
-static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
-				       const VkDeviceCreateInfo *cinfo,
-				       const VkAllocationCallbacks *allocator,
-				       VkDevice *p_device)
+static bool vk_get_usable_queue(VkPhysicalDevice phy_device,
+				VkDeviceCreateInfo *info,
+				VkLayerInstanceDispatchTable *table,
+				uint32_t *p_fam_idx)
 {
-	VkDeviceCreateInfo *info = (VkDeviceCreateInfo *)(cinfo);
-	VkLayerInstanceDispatchTable *inst_disp =
-		get_inst_table(TOKEY(phy_device));
-
-	if (!vk_init_req_extensions(phy_device, info, inst_disp)) {
-		/* TODO */
-	}
-
-	/* retrieve a usable queue, in order to issue our copy command */
 	uint32_t fam_idx = 0;
-#pragma region(usablequeue)
-	/* find or create a usable queue */
 	uint32_t prop_count = 0;
-	VkQueueFamilyProperties queue_fam_props[16];
+	VkQueueFamilyProperties queue_fam_props[MAX_QUEUES];
 
-	inst_disp->GetPhysicalDeviceQueueFamilyProperties(phy_device,
-							  &prop_count, NULL);
-	/* only support 16 queue family */
-	prop_count = (prop_count > 16) ? 16 : prop_count;
+	table->GetPhysicalDeviceQueueFamilyProperties(phy_device, &prop_count,
+						      NULL);
+	if (prop_count > MAX_QUEUES)
+		prop_count = MAX_QUEUES;
 
-	inst_disp->GetPhysicalDeviceQueueFamilyProperties(
-		phy_device, &prop_count, queue_fam_props);
+	table->GetPhysicalDeviceQueueFamilyProperties(phy_device, &prop_count,
+						      queue_fam_props);
 
-	/* find a queue that supports all capabilities, and if one doesn't
-	 * exist, add it. */
 	bool found = false;
 
-	/* we need graphics, and if there is a graphics queue there must be a
-	 * graphics & compute queue. */
 	VkQueueFlags search = (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT);
 
-	/* for queue priorities, if we need it */
-	float one = 1.0f;
-
-	/* if we need to change the requested queues, it will point to this */
 	VkDeviceQueueCreateInfo *mod_queues = NULL;
 
 	for (uint32_t i = 0; i < info->queueCreateInfoCount; i++) {
 		uint32_t idx = info->pQueueCreateInfos[i].queueFamilyIndex;
+		if (idx >= prop_count) {
+			continue;
+		}
+
 		/* this requested queue is one we can use too */
-		if ((idx < prop_count) &&
-		    (queue_fam_props[idx].queueFlags & search) == search &&
+		if ((queue_fam_props[idx].queueFlags & search) == search &&
 		    info->pQueueCreateInfos[i].queueCount > 0) {
 			fam_idx = idx;
 			found = true;
@@ -994,158 +978,161 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 			return VK_ERROR_INITIALIZATION_FAILED;
 		}
 
-		/* we found the queue family, add it */
-		mod_queues = (VkDeviceQueueCreateInfo *)alloca(
-			sizeof(VkDeviceQueueCreateInfo) *
-			(info->queueCreateInfoCount + 1));
-		memcpy(mod_queues, info->pQueueCreateInfos,
-		       sizeof(VkDeviceQueueCreateInfo) *
-			       info->queueCreateInfoCount);
+		uint32_t count = info->queueCreateInfoCount;
+		float one = 1.0f;
 
-		mod_queues[info->queueCreateInfoCount].queueFamilyIndex =
-			fam_idx;
-		mod_queues[info->queueCreateInfoCount].queueCount = 1;
-		mod_queues[info->queueCreateInfoCount].pQueuePriorities = &one;
-		mod_queues[info->queueCreateInfoCount].sType =
+		/* we found the queue family, add it */
+		mod_queues = alloca(sizeof(*mod_queues) * (count + 1));
+		memcpy(mod_queues, info->pQueueCreateInfos,
+		       sizeof(*mod_queues) * count);
+
+		mod_queues[count].queueFamilyIndex = fam_idx;
+		mod_queues[count].queueCount = 1;
+		mod_queues[count].pQueuePriorities = &one;
+		mod_queues[count].sType =
 			VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-		mod_queues[info->queueCreateInfoCount].pNext = NULL;
-		mod_queues[info->queueCreateInfoCount].flags = 0;
+		mod_queues[count].pNext = NULL;
+		mod_queues[count].flags = 0;
 
 		info->pQueueCreateInfos = mod_queues;
 		info->queueCreateInfoCount++;
 	}
-#pragma endregion
 
-	VkLayerDeviceCreateInfo *layer_info =
-		(VkLayerDeviceCreateInfo *)info->pNext;
+	*p_fam_idx = fam_idx;
+	return true;
+}
 
-	/* step through the chain of pNext until we get to the link info */
-	while (layer_info &&
-	       (layer_info->sType !=
-			VK_STRUCTURE_TYPE_LOADER_DEVICE_CREATE_INFO ||
-		layer_info->function != VK_LAYER_LINK_INFO)) {
-		layer_info = (VkLayerDeviceCreateInfo *)layer_info->pNext;
+static inline bool is_device_link_info(VkLayerDeviceCreateInfo *lici)
+{
+	return lici->sType == VK_STRUCTURE_TYPE_LOADER_DEVICE_CREATE_INFO &&
+	       lici->function == VK_LAYER_LINK_INFO;
+}
+
+static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
+				       const VkDeviceCreateInfo *cinfo,
+				       const VkAllocationCallbacks *allocator,
+				       VkDevice *p_device)
+{
+	VkDeviceCreateInfo *info = (VkDeviceCreateInfo *)(cinfo);
+	VkLayerInstanceDispatchTable *inst_disp =
+		get_inst_table(TOKEY(phy_device));
+
+	uint32_t fam_idx = 0;
+
+	if (!vk_init_req_extensions(phy_device, info, inst_disp)) {
+		return VK_ERROR_INITIALIZATION_FAILED;
 	}
-
-	if (layer_info == NULL) {
-		/* No loader instance create info */
+	if (!vk_get_usable_queue(phy_device, info, inst_disp, &fam_idx)) {
 		return VK_ERROR_INITIALIZATION_FAILED;
 	}
 
-	PFN_vkGetInstanceProcAddr gipa =
-		layer_info->u.pLayerInfo->pfnNextGetInstanceProcAddr;
-	PFN_vkGetDeviceProcAddr gdpa =
-		layer_info->u.pLayerInfo->pfnNextGetDeviceProcAddr;
-	/* move chain on for next layer */
-	layer_info->u.pLayerInfo = layer_info->u.pLayerInfo->pNext;
+	VkLayerDeviceCreateInfo *ldci = (void *)info->pNext;
+
+	/* -------------------------------------------------------- */
+	/* step through chain until we get to the link info         */
+
+	while (ldci && is_device_link_info(ldci)) {
+		ldci = (VkLayerDeviceCreateInfo *)ldci->pNext;
+	}
+
+	if (ldci == NULL) {
+		return VK_ERROR_INITIALIZATION_FAILED;
+	}
+
+	PFN_vkGetInstanceProcAddr gipa;
+	PFN_vkGetDeviceProcAddr gdpa;
+
+	gipa = ldci->u.pLayerInfo->pfnNextGetInstanceProcAddr;
+	gdpa = ldci->u.pLayerInfo->pfnNextGetDeviceProcAddr;
+
+	/* -------------------------------------------------------- */
+	/* move chain on for next layer                             */
+
+	ldci->u.pLayerInfo = ldci->u.pLayerInfo->pNext;
+
+	/* -------------------------------------------------------- */
+	/* create device and initialize hook data                   */
 
 	PFN_vkCreateDevice createFunc =
 		(PFN_vkCreateDevice)gipa(VK_NULL_HANDLE, "vkCreateDevice");
 
 	createFunc(phy_device, info, allocator, p_device);
+	VkDevice device = *p_device;
 
-	/* store the table by key */
 	struct vk_data *data = get_device_data(TOKEY(*p_device));
 	VkLayerDispatchTable *table = &data->table;
 
-	/* store the queue_fam_idx needed for graphics command */
 	data->queue_fam_idx = fam_idx;
-
-	/* store the phy_device on which device is created */
 	data->phy_device = phy_device;
+	data->device = device;
 
-	/* store the device */
-	data->device = *p_device;
+	/* -------------------------------------------------------- */
+	/* fetch the functions we need                              */
 
-	/* feed our dispatch table for the functions we need (function pointer
-	 * into the next layer) */
-	table->GetDeviceProcAddr =
-		(PFN_vkGetDeviceProcAddr)gdpa(*p_device, "vkGetDeviceProcAddr");
-	table->DestroyDevice =
-		(PFN_vkDestroyDevice)gdpa(*p_device, "vkDestroyDevice");
+#define GETADDR(x)                                        \
+	do {                                              \
+		table->x = (void *)gdpa(device, "vk" #x); \
+	} while (false)
 
-	table->CreateSwapchainKHR = (PFN_vkCreateSwapchainKHR)gdpa(
-		*p_device, "vkCreateSwapchainKHR");
-	table->DestroySwapchainKHR = (PFN_vkDestroySwapchainKHR)gdpa(
-		*p_device, "vkDestroySwapchainKHR");
-	table->QueuePresentKHR =
-		(PFN_vkQueuePresentKHR)gdpa(*p_device, "vkQueuePresentKHR");
+	GETADDR(GetDeviceProcAddr);
+	GETADDR(DestroyDevice);
 
-	table->AllocateMemory =
-		(PFN_vkAllocateMemory)gdpa(*p_device, "vkAllocateMemory");
-	table->FreeMemory = (PFN_vkFreeMemory)gdpa(*p_device, "vkFreeMemory");
-	table->BindImageMemory =
-		(PFN_vkBindImageMemory)gdpa(*p_device, "vkBindImageMemory");
-	table->BindImageMemory2KHR = (PFN_vkBindImageMemory2KHR)gdpa(
-		*p_device, "vkBindImageMemory2KHR");
+	GETADDR(CreateSwapchainKHR);
+	GETADDR(DestroySwapchainKHR);
+	GETADDR(QueuePresentKHR);
 
-	table->GetSwapchainImagesKHR = (PFN_vkGetSwapchainImagesKHR)gdpa(
-		*p_device, "vkGetSwapchainImagesKHR");
+	GETADDR(AllocateMemory);
+	GETADDR(FreeMemory);
+	GETADDR(BindImageMemory);
+	GETADDR(BindImageMemory2KHR);
 
-	table->CreateImage =
-		(PFN_vkCreateImage)gdpa(*p_device, "vkCreateImage");
-	table->DestroyImage =
-		(PFN_vkDestroyImage)gdpa(*p_device, "vkDestroyImage");
-	table->GetImageMemoryRequirements =
-		(PFN_vkGetImageMemoryRequirements)gdpa(
-			*p_device, "vkGetImageMemoryRequirements");
-	table->GetImageMemoryRequirements2KHR =
-		(PFN_vkGetImageMemoryRequirements2KHR)gdpa(
-			*p_device, "vkGetImageMemoryRequirements2KHR");
+	GETADDR(GetSwapchainImagesKHR);
 
-	table->BeginCommandBuffer = (PFN_vkBeginCommandBuffer)gdpa(
-		*p_device, "vkBeginCommandBuffer");
-	table->EndCommandBuffer =
-		(PFN_vkEndCommandBuffer)gdpa(*p_device, "vkEndCommandBuffer");
+	GETADDR(CreateImage);
+	GETADDR(DestroyImage);
+	GETADDR(GetImageMemoryRequirements);
+	GETADDR(GetImageMemoryRequirements2KHR);
 
-	table->CmdCopyImage =
-		(PFN_vkCmdCopyImage)gdpa(*p_device, "vkCmdCopyImage");
-#if 0
-	/* might help handling formats */
-	table->CmdBlitImage = (PFN_vkCmdBlitImage)gdpa(*p_device,
-			"vkCmdBlitImage");
-#endif
+	GETADDR(BeginCommandBuffer);
+	GETADDR(EndCommandBuffer);
 
-	table->CmdPipelineBarrier = (PFN_vkCmdPipelineBarrier)gdpa(
-		*p_device, "vkCmdPipelineBarrier");
-	table->GetDeviceQueue =
-		(PFN_vkGetDeviceQueue)gdpa(*p_device, "vkGetDeviceQueue");
-	table->QueueSubmit =
-		(PFN_vkQueueSubmit)gdpa(*p_device, "vkQueueSubmit");
+	GETADDR(CmdCopyImage);
 
-	table->QueueWaitIdle =
-		(PFN_vkQueueWaitIdle)gdpa(*p_device, "vkQueueWaitIdle");
-	table->DeviceWaitIdle =
-		(PFN_vkDeviceWaitIdle)gdpa(*p_device, "vkDeviceWaitIdle");
+	GETADDR(CmdPipelineBarrier);
+	GETADDR(GetDeviceQueue);
+	GETADDR(QueueSubmit);
 
-	table->CreateCommandPool =
-		(PFN_vkCreateCommandPool)gdpa(*p_device, "vkCreateCommandPool");
-	table->AllocateCommandBuffers = (PFN_vkAllocateCommandBuffers)gdpa(
-		*p_device, "vkAllocateCommandBuffers");
+	GETADDR(QueueWaitIdle);
+	GETADDR(DeviceWaitIdle);
 
-	/* retrieve the queue */
+	GETADDR(CreateCommandPool);
+	GETADDR(AllocateCommandBuffers);
+#undef GETADDR
+
+	/* -------------------------------------------------------- */
+	/* retrieve the queue                                       */
+
 	table->GetDeviceQueue(*p_device, fam_idx, 0, &data->queue);
 
 	if (data->cmd_pool == VK_NULL_HANDLE) {
-		VkCommandPoolCreateInfo pool_info;
-		pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-		pool_info.pNext = NULL;
-		pool_info.flags =
-			VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-		pool_info.queueFamilyIndex = fam_idx;
+		VkCommandPoolCreateInfo cpci;
+		cpci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+		cpci.pNext = NULL;
+		cpci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+		cpci.queueFamilyIndex = fam_idx;
 
-		VkResult res = table->CreateCommandPool(*p_device, &pool_info,
-							NULL, &data->cmd_pool);
+		VkResult res = table->CreateCommandPool(device, &cpci, NULL,
+							&data->cmd_pool);
 		DbgOutRes("# OBS_Layer # CreateCommandPool %s\n", res);
 
-		VkCommandBufferAllocateInfo cmd_info;
-		cmd_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-		cmd_info.pNext = NULL;
-		cmd_info.commandPool = data->cmd_pool;
-		cmd_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-		cmd_info.commandBufferCount = 1;
+		VkCommandBufferAllocateInfo cbai;
+		cbai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		cbai.pNext = NULL;
+		cbai.commandPool = data->cmd_pool;
+		cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		cbai.commandBufferCount = 1;
 
-		res = table->AllocateCommandBuffers(*p_device, &cmd_info,
+		res = table->AllocateCommandBuffers(device, &cbai,
 						    &data->cmd_buffer);
 		DbgOutRes("# OBS_Layer # AllocateCommandBuffers %s\n", res);
 	}
@@ -1190,9 +1177,9 @@ OBS_CreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *info,
 	DbgOutRes("# OBS_Layer # GetSwapchainImagesKHR %s\n", res);
 
 	if (count > 0) {
-		count = (count < MAX_IMAGES_PER_SWAPCHAIN)
-				? count
-				: MAX_IMAGES_PER_SWAPCHAIN;
+		if (count > MAX_IMAGES_PER_SWAPCHAIN)
+			count = MAX_IMAGES_PER_SWAPCHAIN;
+
 		res = table->GetSwapchainImagesKHR(data->device, sc, &count,
 						   swap->swap_images);
 		DbgOutRes("# OBS_Layer # GetSwapchainImagesKHR %s\n", res);
