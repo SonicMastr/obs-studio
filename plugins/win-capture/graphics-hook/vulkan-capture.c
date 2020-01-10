@@ -620,7 +620,7 @@ struct ext_spec {
 	const char *const *names;
 };
 
-#define get_ext_spec(x) ((struct ext_spec *)(&x->enabledExtensionCount))
+#define get_ext_spec(x) ((struct ext_spec *)(&(x)->enabledExtensionCount))
 
 static void *vk_enable_exts(struct ext_spec *spec, struct ext_info *exts,
 			    size_t count)
@@ -672,12 +672,12 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 					 const VkAllocationCallbacks *allocator,
 					 VkInstance *p_inst)
 {
-	VkInstanceCreateInfo *info = (void *)cinfo;
+	VkInstanceCreateInfo info = *cinfo;
 
 	/* -------------------------------------------------------- */
 	/* step through chain until we get to the link info         */
 
-	VkLayerInstanceCreateInfo *lici = (void *)info->pNext;
+	VkLayerInstanceCreateInfo *lici = (void *)info.pNext;
 	while (lici && !is_inst_link_info(lici)) {
 		lici = (VkLayerInstanceCreateInfo *)lici->pNext;
 	}
@@ -704,14 +704,14 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 
 	const size_t req_ext_count = sizeof(req_ext) / sizeof(req_ext[0]);
 
-	void *a = vk_enable_exts(get_ext_spec(info), req_ext, req_ext_count);
+	void *a = vk_enable_exts(get_ext_spec(&info), req_ext, req_ext_count);
 
 	/* -------------------------------------------------------- */
 	/* create instance                                          */
 
 	PFN_vkCreateInstance create = (void *)gpa(NULL, "vkCreateInstance");
 
-	VkResult res = create(info, allocator, p_inst);
+	VkResult res = create(&info, allocator, p_inst);
 	VkInstance inst = *p_inst;
 	free(a);
 
@@ -1020,7 +1020,7 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 				       const VkAllocationCallbacks *allocator,
 				       VkDevice *p_device)
 {
-	VkDeviceCreateInfo *info = (VkDeviceCreateInfo *)(cinfo);
+	VkDeviceCreateInfo info = *cinfo;
 	VkLayerInstanceDispatchTable *inst_disp =
 		get_inst_table(TOKEY(phy_device));
 
@@ -1028,14 +1028,14 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 	void *a = NULL, *b = NULL;
 	VkResult ret = VK_ERROR_INITIALIZATION_FAILED;
 
-	if (!vk_init_req_extensions(phy_device, info, inst_disp, &a)) {
+	if (!vk_init_req_extensions(phy_device, &info, inst_disp, &a)) {
 		goto fail;
 	}
-	if (!vk_get_usable_queue(phy_device, info, inst_disp, &fam_idx, &b)) {
+	if (!vk_get_usable_queue(phy_device, &info, inst_disp, &fam_idx, &b)) {
 		goto fail;
 	}
 
-	VkLayerDeviceCreateInfo *ldci = (void *)info->pNext;
+	VkLayerDeviceCreateInfo *ldci = (void *)info.pNext;
 
 	/* -------------------------------------------------------- */
 	/* step through chain until we get to the link info         */
@@ -1065,7 +1065,7 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 	PFN_vkCreateDevice createFunc =
 		(PFN_vkCreateDevice)gipa(VK_NULL_HANDLE, "vkCreateDevice");
 
-	createFunc(phy_device, info, allocator, p_device);
+	createFunc(phy_device, &info, allocator, p_device);
 	VkDevice device = *p_device;
 
 	struct vk_data *data = get_device_data(TOKEY(*p_device));
