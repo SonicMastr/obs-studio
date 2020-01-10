@@ -1017,7 +1017,7 @@ static inline bool is_device_link_info(VkLayerDeviceCreateInfo *lici)
 
 static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 				       const VkDeviceCreateInfo *cinfo,
-				       const VkAllocationCallbacks *allocator,
+				       const VkAllocationCallbacks *ac,
 				       VkDevice *p_device)
 {
 	VkDeviceCreateInfo info = *cinfo;
@@ -1065,7 +1065,7 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 	PFN_vkCreateDevice createFunc =
 		(PFN_vkCreateDevice)gipa(VK_NULL_HANDLE, "vkCreateDevice");
 
-	createFunc(phy_device, &info, allocator, p_device);
+	createFunc(phy_device, &info, ac, p_device);
 	VkDevice device = *p_device;
 
 	struct vk_data *data = get_device_data(TOKEY(*p_device));
