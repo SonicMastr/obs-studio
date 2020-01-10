@@ -821,7 +821,7 @@ static VkResult VKAPI OBS_EnumeratePhysicalDevices(
 }
 
 static bool
-shared_tex_supported(VkLayerInstanceDispatchTable *inst_disp,
+shared_tex_supported(VkLayerInstanceDispatchTable *table,
 		     VkPhysicalDevice phy_device, VkFormat format,
 		     VkImageUsageFlags usage,
 		     VkExternalMemoryPropertiesKHR *external_mem_props)
@@ -860,7 +860,7 @@ shared_tex_supported(VkLayerInstanceDispatchTable *inst_disp,
 	format_props.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2_KHR;
 	format_props.pNext = &external_img_format_props;
 
-	VkResult result = inst_disp->GetPhysicalDeviceImageFormatProperties2KHR(
+	VkResult result = table->GetPhysicalDeviceImageFormatProperties2KHR(
 		phy_device, &format_info, &format_props);
 
 	*external_mem_props =
@@ -873,7 +873,7 @@ shared_tex_supported(VkLayerInstanceDispatchTable *inst_disp,
 
 static bool vk_init_req_extensions(VkPhysicalDevice phy_device,
 				   VkDeviceCreateInfo *info,
-				   VkLayerInstanceDispatchTable *inst_disp)
+				   VkLayerInstanceDispatchTable *table)
 {
 	struct ext_info {
 		const char *name;
@@ -893,13 +893,13 @@ static bool vk_init_req_extensions(VkPhysicalDevice phy_device,
 	size_t req_ext_found = 0;
 
 	uint32_t count = 0;
-	inst_disp->EnumerateDeviceExtensionProperties(phy_device, NULL, &count,
-						      NULL);
+	table->EnumerateDeviceExtensionProperties(phy_device, NULL, &count,
+						  NULL);
 
 	VkExtensionProperties *props =
 		(VkExtensionProperties *)alloca(sizeof(*props) * count);
-	inst_disp->EnumerateDeviceExtensionProperties(phy_device, NULL, &count,
-						      props);
+	table->EnumerateDeviceExtensionProperties(phy_device, NULL, &count,
+						  props);
 
 	for (uint32_t i = 0; i < count; i++) {
 		for (size_t j = 0; j < req_ext_count; j++) {
