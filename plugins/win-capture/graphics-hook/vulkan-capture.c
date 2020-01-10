@@ -561,8 +561,7 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 	DbgOutRes("# OBS_Layer # AllocateMemory %s\n", res);
 
 	if (VK_SUCCESS != res) {
-		hlog("vk_shtex_init_vulkan_tex: failed to AllocateMemory : %s",
-		     result_to_str(res));
+		flog("failed to AllocateMemory: %s", result_to_str(res));
 		table->DestroyImage(data->device, swap->export_image, NULL);
 		swap->export_image = NULL;
 		return false;
@@ -1188,7 +1187,7 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 
 	if (!shared_tex_supported(inst_disp, phy_device, format, usage,
 				  &data->external_mem_props)) {
-		hlog(" Vulkan CreateDevice : texture sharing is not supported\n");
+		flog("texture sharing is not supported\n");
 	}
 
 	return VK_SUCCESS;
