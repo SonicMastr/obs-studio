@@ -843,50 +843,49 @@ static VkResult VKAPI OBS_EnumeratePhysicalDevices(
 }
 
 static bool
-shared_tex_supported(VkLayerInstanceDispatchTable *table,
-		     VkPhysicalDevice phy_device, VkFormat format,
-		     VkImageUsageFlags usage,
-		     VkExternalMemoryPropertiesKHR *external_mem_props)
+vk_shared_tex_supported(VkLayerInstanceDispatchTable *table,
+			VkPhysicalDevice phy_device, VkFormat format,
+			VkImageUsageFlags usage,
+			VkExternalMemoryPropertiesKHR *external_mem_props)
 {
-	VkPhysicalDeviceImageFormatInfo2KHR format_info;
-	VkPhysicalDeviceExternalImageFormatInfoKHR external_img_format;
+	VkPhysicalDeviceImageFormatInfo2KHR info;
+	VkPhysicalDeviceExternalImageFormatInfoKHR external_info;
 
-	external_img_format.sType =
+	external_info.sType =
 		VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO_KHR;
-	external_img_format.pNext = NULL;
-	external_img_format.handleType =
+	external_info.pNext = NULL;
+	external_info.handleType =
 		VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_KMT_BIT_KHR;
 
-	format_info.sType =
-		VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2_KHR;
-	format_info.pNext = &external_img_format;
-	format_info.format = format;
-	format_info.type = VK_IMAGE_TYPE_2D;
-	format_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-	format_info.flags = 0;
-	format_info.usage = usage;
+	info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2_KHR;
+	info.pNext = &external_info;
+	info.format = format;
+	info.type = VK_IMAGE_TYPE_2D;
+	info.tiling = VK_IMAGE_TILING_OPTIMAL;
+	info.flags = 0;
+	info.usage = usage;
 
-	VkExternalImageFormatPropertiesKHR external_img_format_props;
-	memset(&external_img_format_props, 0,
-	       sizeof(VkExternalImageFormatPropertiesKHR));
-	external_img_format_props.sType =
+	VkExternalImageFormatPropertiesKHR external_props;
+	memset(&external_props, 0, sizeof(VkExternalImageFormatPropertiesKHR));
+	external_props.sType =
 		VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES_KHR;
-	external_img_format_props.pNext = NULL;
+	external_props.pNext = NULL;
 
-	VkImageFormatProperties2KHR format_props;
-	memset(&format_props, 0, sizeof(VkImageFormatProperties2KHR));
-	format_props.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2_KHR;
-	format_props.pNext = &external_img_format_props;
+	VkImageFormatProperties2KHR props;
+	memset(&props, 0, sizeof(props));
+	props.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2_KHR;
+	props.pNext = &external_props;
 
 	VkResult result = table->GetPhysicalDeviceImageFormatProperties2KHR(
-		phy_device, &format_info, &format_props);
+		phy_device, &info, &props);
 
-	*external_mem_props =
-		external_img_format_props.externalMemoryProperties;
+	*external_mem_props = external_props.externalMemoryProperties;
+
+	const VkExternalMemoryFeatureFlags features =
+		external_mem_props->externalMemoryFeatures;
 
 	return ((VK_SUCCESS == result) &&
-		(external_mem_props->externalMemoryFeatures &
-		 VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT_KHR));
+		(features & VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT_KHR));
 }
 
 static bool vk_init_req_extensions(VkPhysicalDevice phy_device,
@@ -926,7 +925,8 @@ static bool vk_init_req_extensions(VkPhysicalDevice phy_device,
 	}
 
 	if (req_ext_found != req_ext_count) {
-		DbgOut("# OBS_Layer # Needed device extensions are not available\n");
+		DbgOut("# OBS_Layer # Needed device extensions "
+		       "are not available\n");
 		return false;
 	}
 
@@ -1163,8 +1163,8 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 	VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
 				  VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
-	if (!shared_tex_supported(inst_disp, phy_device, format, usage,
-				  &data->external_mem_props)) {
+	if (!vk_shared_tex_supported(inst_disp, phy_device, format, usage,
+				     &data->external_mem_props)) {
 		flog("texture sharing is not supported\n");
 	}
 
