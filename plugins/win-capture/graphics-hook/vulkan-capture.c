@@ -1040,7 +1040,7 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 	/* -------------------------------------------------------- */
 	/* step through chain until we get to the link info         */
 
-	while (ldci && is_device_link_info(ldci)) {
+	while (ldci && !is_device_link_info(ldci)) {
 		ldci = (VkLayerDeviceCreateInfo *)ldci->pNext;
 	}
 
