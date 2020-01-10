@@ -1,8 +1,6 @@
 #include <windows.h>
 #include "graphics-hook.h"
 
-#if COMPILE_VULKAN_HOOK
-
 #define VK_USE_PLATFORM_WIN32_KHR
 
 #include <malloc.h>
@@ -1559,5 +1557,3 @@ bool hook_vulkan(void)
 	}
 	return hooked;
 }
-
-#endif

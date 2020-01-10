@@ -37,8 +37,10 @@ if(MSVC)
 endif()
 
 if (VULKAN_FOUND)
-    list(APPEND graphics-hook_SOURCES
-        vulkan-capture.c)
+	list(APPEND graphics-hook_SOURCES
+		vulkan-capture.c)
+	list(APPEND graphics-hook_HEADERS
+		vulkan-capture.h)
 endif()
 
 add_library(graphics-hook MODULE
