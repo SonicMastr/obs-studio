@@ -872,8 +872,7 @@ shared_tex_supported(VkLayerInstanceDispatchTable *inst_disp,
 }
 
 static bool vk_init_req_extensions(VkPhysicalDevice phy_device,
-				   const VkDeviceCreateInfo *info,
-				   VkDeviceCreateInfo *create_info,
+				   VkDeviceCreateInfo *info,
 				   VkLayerInstanceDispatchTable *inst_disp)
 {
 	struct ext_info {
@@ -934,7 +933,7 @@ static bool vk_init_req_extensions(VkPhysicalDevice phy_device,
 	}
 
 	uint32_t idx = info->enabledExtensionCount;
-	create_info->enabledExtensionCount += (uint32_t)req_enable_count;
+	info->enabledExtensionCount += (uint32_t)req_enable_count;
 
 	const char **ext_names = (const char **)alloca(
 		sizeof(const char *) * info->enabledExtensionCount);
@@ -949,20 +948,20 @@ static bool vk_init_req_extensions(VkPhysicalDevice phy_device,
 		}
 	}
 
-	create_info->ppEnabledExtensionNames = ext_names;
+	info->ppEnabledExtensionNames = ext_names;
 	return true;
 }
 
 static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
-				       const VkDeviceCreateInfo *info,
+				       const VkDeviceCreateInfo *cinfo,
 				       const VkAllocationCallbacks *allocator,
 				       VkDevice *p_device)
 {
-	VkDeviceCreateInfo *create_info = (VkDeviceCreateInfo *)(info);
+	VkDeviceCreateInfo *info = (VkDeviceCreateInfo *)(cinfo);
 	VkLayerInstanceDispatchTable *inst_disp =
 		get_inst_table(TOKEY(phy_device));
 
-	if (!vk_init_req_extensions(phy_device, info, create_info, inst_disp)) {
+	if (!vk_init_req_extensions(phy_device, info, inst_disp)) {
 		/* TODO */
 	}
 
@@ -1039,35 +1038,33 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 		mod_queues[info->queueCreateInfoCount].pNext = NULL;
 		mod_queues[info->queueCreateInfoCount].flags = 0;
 
-		create_info->pQueueCreateInfos = mod_queues;
-		create_info->queueCreateInfoCount++;
+		info->pQueueCreateInfos = mod_queues;
+		info->queueCreateInfoCount++;
 	}
 #pragma endregion
 
-	VkLayerDeviceCreateInfo *layer_create_info =
+	VkLayerDeviceCreateInfo *layer_info =
 		(VkLayerDeviceCreateInfo *)info->pNext;
 
 	/* step through the chain of pNext until we get to the link info */
-	while (layer_create_info &&
-	       (layer_create_info->sType !=
+	while (layer_info &&
+	       (layer_info->sType !=
 			VK_STRUCTURE_TYPE_LOADER_DEVICE_CREATE_INFO ||
-		layer_create_info->function != VK_LAYER_LINK_INFO)) {
-		layer_create_info =
-			(VkLayerDeviceCreateInfo *)layer_create_info->pNext;
+		layer_info->function != VK_LAYER_LINK_INFO)) {
+		layer_info = (VkLayerDeviceCreateInfo *)layer_info->pNext;
 	}
 
-	if (layer_create_info == NULL) {
+	if (layer_info == NULL) {
 		/* No loader instance create info */
 		return VK_ERROR_INITIALIZATION_FAILED;
 	}
 
 	PFN_vkGetInstanceProcAddr gipa =
-		layer_create_info->u.pLayerInfo->pfnNextGetInstanceProcAddr;
+		layer_info->u.pLayerInfo->pfnNextGetInstanceProcAddr;
 	PFN_vkGetDeviceProcAddr gdpa =
-		layer_create_info->u.pLayerInfo->pfnNextGetDeviceProcAddr;
+		layer_info->u.pLayerInfo->pfnNextGetDeviceProcAddr;
 	/* move chain on for next layer */
-	layer_create_info->u.pLayerInfo =
-		layer_create_info->u.pLayerInfo->pNext;
+	layer_info->u.pLayerInfo = layer_info->u.pLayerInfo->pNext;
 
 	PFN_vkCreateDevice createFunc =
 		(PFN_vkCreateDevice)gipa(VK_NULL_HANDLE, "vkCreateDevice");
