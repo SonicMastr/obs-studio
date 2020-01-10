@@ -618,6 +618,54 @@ bool shutdown_vk_layer()
 	return true;
 }
 
+struct ext_info {
+	const char *name;
+	bool found;
+	bool enabled;
+};
+
+struct ext_spec {
+	uint32_t count;
+	const char *const *names;
+};
+
+#define get_ext_spec(x) ((struct ext_spec *)(&x->enabledExtensionCount))
+
+static void vk_enable_req_extensions(struct ext_spec *spec,
+				     struct ext_info *exts, size_t count)
+{
+	size_t enable_count = count;
+
+	for (uint32_t i = 0; i < spec->count; i++) {
+		for (size_t j = 0; j < count; j++) {
+			const char *name = spec->names[i];
+			struct ext_info *ext = &exts[j];
+
+			if (!ext->enabled && strcmp(ext->name, name) == 0) {
+				ext->enabled = true;
+				enable_count--;
+			}
+		}
+	}
+
+	uint32_t idx = spec->count;
+	spec->count += (uint32_t)enable_count;
+
+	const char **new_names = alloca(sizeof(const char *) * spec->count);
+	for (uint32_t i = 0; i < idx; i++) {
+		new_names[i] = (const char *)(spec->names[i]);
+	}
+
+	for (size_t i = 0; i < count; i++) {
+		struct ext_info *ext = &exts[i];
+		if (!ext->enabled) {
+			new_names[idx++] = ext->name;
+		}
+	}
+
+	spec->names = new_names;
+}
+
 EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 					 const VkAllocationCallbacks *allocator,
 					 VkInstance *p_inst)
@@ -646,46 +694,14 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 	PFN_vkCreateInstance create =
 		(PFN_vkCreateInstance)gpa(VK_NULL_HANDLE, "vkCreateInstance");
 
-	bool external_memory_capabilities_enabled = false;
-	bool get_phy_device_properties2_enabled = false;
-	for (uint32_t i = 0; i < info->enabledExtensionCount; ++i) {
-		external_memory_capabilities_enabled |=
-			(0 ==
-			 strcmp(info->ppEnabledExtensionNames[i],
-				VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME));
-		get_phy_device_properties2_enabled |=
-			(0 ==
-			 strcmp(info->ppEnabledExtensionNames[i],
-				VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME));
-	}
+	struct ext_info req_ext[] = {
+		{.name = VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME},
+		{.name = VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME},
+	};
 
-	if (!external_memory_capabilities_enabled ||
-	    !get_phy_device_properties2_enabled) {
-		uint32_t count = info->enabledExtensionCount;
-		uint32_t new_count = info->enabledExtensionCount;
+	const size_t req_ext_count = sizeof(req_ext) / sizeof(req_ext[0]);
 
-		new_count += external_memory_capabilities_enabled ? 0 : 1;
-		new_count += get_phy_device_properties2_enabled ? 0 : 1;
-
-		const char **ext_names =
-			(const char **)alloca(sizeof(const char *) * new_count);
-		for (uint32_t i = 0; i < count; ++i) {
-			ext_names[i] =
-				(const char *)(info->ppEnabledExtensionNames[i]);
-		}
-		if (!external_memory_capabilities_enabled) {
-			ext_names[count++] =
-				VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME;
-		}
-		if (!get_phy_device_properties2_enabled) {
-			ext_names[count++] =
-				VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME;
-		}
-		VkInstanceCreateInfo *create_info =
-			(VkInstanceCreateInfo *)(info);
-		create_info->enabledExtensionCount = count;
-		create_info->ppEnabledExtensionNames = ext_names;
-	}
+	vk_enable_req_extensions(get_ext_spec(info), req_ext, req_ext_count);
 
 	VkResult res = create(info, allocator, p_inst);
 	DbgOutRes("# OBS_Layer # CreateInstance %s\n", res);
@@ -872,12 +888,6 @@ static bool vk_init_req_extensions(VkPhysicalDevice phy_device,
 				   VkDeviceCreateInfo *info,
 				   VkLayerInstanceDispatchTable *table)
 {
-	struct ext_info {
-		const char *name;
-		bool found;
-		bool enabled;
-	};
-
 	struct ext_info req_ext[] = {
 		{.name = VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME},
 		{.name = VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME},
@@ -915,37 +925,7 @@ static bool vk_init_req_extensions(VkPhysicalDevice phy_device,
 		return false;
 	}
 
-	size_t req_enable_count = req_ext_count;
-
-	for (uint32_t i = 0; i < info->enabledExtensionCount; i++) {
-		for (size_t j = 0; j < req_ext_count; j++) {
-			const char *name = info->ppEnabledExtensionNames[i];
-			struct ext_info *ext = &req_ext[j];
-
-			if (!ext->enabled && strcmp(ext->name, name) == 0) {
-				ext->enabled = true;
-				req_enable_count--;
-			}
-		}
-	}
-
-	uint32_t idx = info->enabledExtensionCount;
-	info->enabledExtensionCount += (uint32_t)req_enable_count;
-
-	const char **ext_names = (const char **)alloca(
-		sizeof(const char *) * info->enabledExtensionCount);
-	for (uint32_t i = 0; i < idx; i++) {
-		ext_names[i] = (const char *)(info->ppEnabledExtensionNames[i]);
-	}
-
-	for (size_t i = 0; i < req_ext_count; i++) {
-		struct ext_info *ext = &req_ext[i];
-		if (!ext->enabled) {
-			ext_names[idx++] = ext->name;
-		}
-	}
-
-	info->ppEnabledExtensionNames = ext_names;
+	vk_enable_req_extensions(get_ext_spec(info), req_ext, req_ext_count);
 	return true;
 }
 
