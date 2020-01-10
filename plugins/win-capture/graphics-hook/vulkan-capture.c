@@ -624,8 +624,8 @@ struct ext_spec {
 
 #define get_ext_spec(x) ((struct ext_spec *)(&x->enabledExtensionCount))
 
-static void vk_enable_exts(struct ext_spec *spec, struct ext_info *exts,
-			   size_t count)
+static void *vk_enable_exts(struct ext_spec *spec, struct ext_info *exts,
+			    size_t count)
 {
 	size_t enable_count = count;
 
@@ -641,10 +641,14 @@ static void vk_enable_exts(struct ext_spec *spec, struct ext_info *exts,
 		}
 	}
 
+	if (!enable_count) {
+		return NULL;
+	}
+
 	uint32_t idx = spec->count;
 	spec->count += (uint32_t)enable_count;
 
-	const char **new_names = alloca(sizeof(const char *) * spec->count);
+	const char **new_names = malloc(sizeof(const char *) * spec->count);
 	for (uint32_t i = 0; i < idx; i++) {
 		new_names[i] = (const char *)(spec->names[i]);
 	}
@@ -657,6 +661,7 @@ static void vk_enable_exts(struct ext_spec *spec, struct ext_info *exts,
 	}
 
 	spec->names = new_names;
+	return (void *)new_names;
 }
 
 static inline bool is_inst_link_info(VkLayerInstanceCreateInfo *lici)
@@ -701,7 +706,7 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 
 	const size_t req_ext_count = sizeof(req_ext) / sizeof(req_ext[0]);
 
-	vk_enable_exts(get_ext_spec(info), req_ext, req_ext_count);
+	void *a = vk_enable_exts(get_ext_spec(info), req_ext, req_ext_count);
 
 	/* -------------------------------------------------------- */
 	/* create instance                                          */
@@ -710,6 +715,7 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 
 	VkResult res = create(info, allocator, p_inst);
 	VkInstance inst = *p_inst;
+	free(a);
 
 	/* -------------------------------------------------------- */
 	/* fetch the functions we need                              */
@@ -881,7 +887,8 @@ vk_shared_tex_supported(VkLayerInstanceDispatchTable *table,
 
 static bool vk_init_req_extensions(VkPhysicalDevice phy_device,
 				   VkDeviceCreateInfo *info,
-				   VkLayerInstanceDispatchTable *table)
+				   VkLayerInstanceDispatchTable *table,
+				   void **a)
 {
 	struct ext_info req_ext[] = {
 		{.name = VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME},
@@ -921,14 +928,14 @@ static bool vk_init_req_extensions(VkPhysicalDevice phy_device,
 		return false;
 	}
 
-	vk_enable_exts(get_ext_spec(info), req_ext, req_ext_count);
+	*a = vk_enable_exts(get_ext_spec(info), req_ext, req_ext_count);
 	return true;
 }
 
 static bool vk_get_usable_queue(VkPhysicalDevice phy_device,
 				VkDeviceCreateInfo *info,
 				VkLayerInstanceDispatchTable *table,
-				uint32_t *p_fam_idx)
+				uint32_t *p_fam_idx, void **b)
 {
 	uint32_t fam_idx = 0;
 	uint32_t prop_count = 0;
@@ -982,7 +989,7 @@ static bool vk_get_usable_queue(VkPhysicalDevice phy_device,
 		float one = 1.0f;
 
 		/* we found the queue family, add it */
-		mod_queues = alloca(sizeof(*mod_queues) * (count + 1));
+		mod_queues = malloc(sizeof(*mod_queues) * (count + 1));
 		memcpy(mod_queues, info->pQueueCreateInfos,
 		       sizeof(*mod_queues) * count);
 
@@ -996,6 +1003,8 @@ static bool vk_get_usable_queue(VkPhysicalDevice phy_device,
 
 		info->pQueueCreateInfos = mod_queues;
 		info->queueCreateInfoCount++;
+
+		*b = mod_queues;
 	}
 
 	*p_fam_idx = fam_idx;
@@ -1018,12 +1027,14 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 		get_inst_table(TOKEY(phy_device));
 
 	uint32_t fam_idx = 0;
+	void *a = NULL, *b = NULL;
+	VkResult ret = VK_ERROR_INITIALIZATION_FAILED;
 
-	if (!vk_init_req_extensions(phy_device, info, inst_disp)) {
-		return VK_ERROR_INITIALIZATION_FAILED;
+	if (!vk_init_req_extensions(phy_device, info, inst_disp, &a)) {
+		goto fail;
 	}
-	if (!vk_get_usable_queue(phy_device, info, inst_disp, &fam_idx)) {
-		return VK_ERROR_INITIALIZATION_FAILED;
+	if (!vk_get_usable_queue(phy_device, info, inst_disp, &fam_idx, &b)) {
+		goto fail;
 	}
 
 	VkLayerDeviceCreateInfo *ldci = (void *)info->pNext;
@@ -1035,8 +1046,8 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 		ldci = (VkLayerDeviceCreateInfo *)ldci->pNext;
 	}
 
-	if (ldci == NULL) {
-		return VK_ERROR_INITIALIZATION_FAILED;
+	if (!ldci) {
+		goto fail;
 	}
 
 	PFN_vkGetInstanceProcAddr gipa;
@@ -1144,9 +1155,14 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 	if (!vk_shared_tex_supported(inst_disp, phy_device, format, usage,
 				     &data->external_mem_props)) {
 		flog("texture sharing is not supported\n");
+	} else {
+		ret = VK_SUCCESS;
 	}
 
-	return VK_SUCCESS;
+fail:
+	free(a);
+	free(b);
+	return ret;
 }
 
 static void VKAPI OBS_DestroyDevice(VkDevice device,
