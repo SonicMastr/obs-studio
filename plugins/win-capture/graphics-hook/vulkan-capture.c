@@ -622,8 +622,7 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *info,
 					 const VkAllocationCallbacks *allocator,
 					 VkInstance *p_inst)
 {
-	VkLayerInstanceCreateInfo *create_info =
-		(VkLayerInstanceCreateInfo *)info->pNext;
+	VkLayerInstanceCreateInfo *create_info = (void *)info->pNext;
 
 	/* step through the chain of pNext until we get to the link info */
 	while (create_info &&
@@ -1194,9 +1193,9 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 }
 
 static void VKAPI OBS_DestroyDevice(VkDevice device,
-				    const VkAllocationCallbacks *allocator)
+				    const VkAllocationCallbacks *unused)
 {
-	(void)allocator;
+	(void)unused;
 	vk_remove_device(&device);
 }
 
@@ -1243,18 +1242,16 @@ static void VKAPI OBS_DestroySwapchainKHR(VkDevice device, VkSwapchainKHR sc,
 	if (swap) {
 		if (swap->export_image)
 			table->DestroyImage(device, swap->export_image, NULL);
-
 		if (swap->export_mem)
 			table->FreeMemory(device, swap->export_mem, NULL);
 
 		swap->handle = INVALID_HANDLE_VALUE;
 		swap->sc = VK_NULL_HANDLE;
 		swap->surf = NULL;
+		swap->captured = false;
 
 		if (swap->d3d11_tex)
 			ID3D11Resource_Release(swap->d3d11_tex);
-
-		swap->captured = false;
 	}
 
 	table->DestroySwapchainKHR(device, sc, ac);
@@ -1406,7 +1403,7 @@ static VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
 		"devicekey %p, swapchaincount %d\n",
 		table, info->swapCount);
 
-	for (uint32_t i = 0; i < info->swapchainCount; ++i) {
+	for (uint32_t i = 0; i < info->swapchainCount; i++) {
 		struct swap_data *swap =
 			get_swap_data(data, info->pSwapchains[i]);
 		if (hooked) {
