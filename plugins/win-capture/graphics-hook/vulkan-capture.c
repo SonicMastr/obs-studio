@@ -46,25 +46,26 @@ static CRITICAL_SECTION mutex;
 
 struct swap_data {
 	VkSwapchainKHR sc;
-	VkExtent2D img_extent;
+	VkExtent2D image_extent;
 	VkFormat format;
 	VkSurfaceKHR surf;
 	VkImage export_image;
 	VkDeviceMemory export_mem;
+	VkImage swap_images[MAX_IMAGES_PER_SWAPCHAIN];
+
 	HANDLE handle;
 	struct shtex_data *shtex_info;
 	ID3D11Texture2D *d3d11_tex;
 	bool captured;
-	VkImage swap_images[MAX_IMAGES_PER_SWAPCHAIN];
 };
 
 struct vk_data {
-	VkLayerDispatchTable dispatch_table;
+	VkLayerDispatchTable table;
 	VkPhysicalDevice phy_device;
 	VkDevice device;
 	struct swap_data swaps[MAX_SWAPCHAIN_PER_DEVICE];
 
-	uint32_t queue_family_idx;
+	uint32_t queue_fam_idx;
 	VkCommandPool cmd_pool;
 	VkCommandBuffer cmd_buffer;
 	VkQueue queue;
@@ -139,7 +140,7 @@ static struct vk_data *get_device_data(void *dev)
 static inline VkLayerDispatchTable *get_table(void *dev)
 {
 	struct vk_data *data = get_device_data(dev);
-	return &data->dispatch_table;
+	return &data->table;
 }
 
 static void vk_remove_device(void *dev)
@@ -152,12 +153,12 @@ static void vk_remove_device(void *dev)
 		struct swap_data *swap = &data->swaps[i];
 
 		if (swap->export_image)
-			data->dispatch_table.DestroyImage(
-				data->device, swap->export_image, NULL);
+			data->table.DestroyImage(data->device,
+						 swap->export_image, NULL);
 
 		if (swap->export_mem)
-			data->dispatch_table.FreeMemory(data->device,
-							swap->export_mem, NULL);
+			data->table.FreeMemory(data->device, swap->export_mem,
+					       NULL);
 
 		swap->handle = INVALID_HANDLE_VALUE;
 		swap->sc = VK_NULL_HANDLE;
@@ -195,7 +196,7 @@ struct vk_surf_data {
 };
 
 struct vk_inst_data {
-	VkLayerInstanceDispatchTable dispatch_table;
+	VkLayerInstanceDispatchTable table;
 	uint32_t phy_device_count;
 	VkPhysicalDevice *phy_devices[MAX_PHYSICALDEVICE_COUNT];
 
@@ -263,7 +264,7 @@ static struct vk_inst_data *get_inst_data(void *inst)
 static VkLayerInstanceDispatchTable *get_inst_table(void *inst)
 {
 	struct vk_inst_data *inst_data = get_inst_data(inst);
-	return &inst_data->dispatch_table;
+	return &inst_data->table;
 }
 
 static void remove_instance(void *inst)
@@ -396,8 +397,8 @@ static inline bool vk_shtex_init_d3d11_tex(struct vk_data *dev_data,
 	HRESULT hr;
 
 	D3D11_TEXTURE2D_DESC desc = {0};
-	desc.Width = swpch_data->img_extent.width;
-	desc.Height = swpch_data->img_extent.height;
+	desc.Width = swpch_data->image_extent.width;
+	desc.Height = swpch_data->image_extent.height;
 	desc.MipLevels = 1;
 	desc.ArraySize = 1;
 
@@ -440,7 +441,7 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 					    struct swap_data *swap)
 {
 
-	VkLayerDispatchTable *dispatch_table = &data->dispatch_table;
+	VkLayerDispatchTable *table = &data->table;
 
 	VkExternalMemoryImageCreateInfoKHR external_mem_image_info;
 	external_mem_image_info.sType =
@@ -455,8 +456,8 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 	create_info.flags = 0;
 	create_info.imageType = VK_IMAGE_TYPE_2D;
 	create_info.format = swap->format;
-	create_info.extent.width = swap->img_extent.width;
-	create_info.extent.height = swap->img_extent.height;
+	create_info.extent.width = swap->image_extent.width;
+	create_info.extent.height = swap->image_extent.height;
 	create_info.extent.depth = 1;
 	create_info.mipLevels = 1;
 	create_info.arrayLayers = 1;
@@ -470,8 +471,8 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 	create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
 	VkResult res;
-	res = dispatch_table->CreateImage(data->device, &create_info, NULL,
-					  &swap->export_image);
+	res = table->CreateImage(data->device, &create_info, NULL,
+				 &swap->export_image);
 	DbgOutRes("# OBS_Layer # CreateImage %s\n", res);
 
 	VkExportMemoryAllocateInfo export_info;
@@ -503,12 +504,12 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 		img_req_info2.pNext = NULL;
 		img_req_info2.image = swap->export_image;
 
-		dispatch_table->GetImageMemoryRequirements2KHR(
+		table->GetImageMemoryRequirements2KHR(
 			data->device, &img_req_info2, &mem_req2);
 		req = mem_req2.memoryRequirements;
 	} else {
-		dispatch_table->GetImageMemoryRequirements(
-			data->device, swap->export_image, &req);
+		table->GetImageMemoryRequirements(data->device,
+						  swap->export_image, &req);
 	}
 
 	uint32_t mem_type_idx = 0;
@@ -555,23 +556,22 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 		import_info.pNext = &alloc_info;
 	}
 
-	res = dispatch_table->AllocateMemory(data->device, &mem_info, NULL,
-					     &swap->export_mem);
+	res = table->AllocateMemory(data->device, &mem_info, NULL,
+				    &swap->export_mem);
 	DbgOutRes("# OBS_Layer # AllocateMemory %s\n", res);
 
 	if (VK_SUCCESS != res) {
 		hlog("vk_shtex_init_vulkan_tex: failed to AllocateMemory : %s",
 		     result_to_str(res));
-		dispatch_table->DestroyImage(data->device, swap->export_image,
-					     NULL);
+		table->DestroyImage(data->device, swap->export_image, NULL);
 		swap->export_image = NULL;
 		return false;
 	}
 
 	if (!(data->external_mem_props.externalMemoryFeatures &
 	      VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT_KHR)) {
-		res = dispatch_table->BindImageMemory(
-			data->device, swap->export_image, swap->export_mem, 0);
+		res = table->BindImageMemory(data->device, swap->export_image,
+					     swap->export_mem, 0);
 		DbgOutRes("# OBS_Layer # BindImageMemory %s\n", res);
 	} else {
 		VkBindImageMemoryInfoKHR bind_info;
@@ -580,13 +580,11 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 		bind_info.image = swap->export_image;
 		bind_info.memory = swap->export_mem;
 		bind_info.memoryOffset = 0;
-		res = dispatch_table->BindImageMemory2KHR(data->device, 1,
-							  &bind_info);
+		res = table->BindImageMemory2KHR(data->device, 1, &bind_info);
 		DbgOutRes("# OBS_Layer # BindImageMemory2KHR %s\n", res);
 	}
 	if (VK_SUCCESS != res) {
-		dispatch_table->DestroyImage(data->device, swap->export_image,
-					     NULL);
+		table->DestroyImage(data->device, swap->export_image, NULL);
 		return false;
 	}
 	return true;
@@ -693,32 +691,29 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *info,
 	VkResult res = create(info, allocator, p_inst);
 	DbgOutRes("# OBS_Layer # CreateInstance %s\n", res);
 
-	VkLayerInstanceDispatchTable *dispatch_table =
-		get_inst_table(TOKEY(*p_inst));
+	VkLayerInstanceDispatchTable *table = get_inst_table(TOKEY(*p_inst));
 
 	/* fetch our own dispatch table for the functions we need, into the
 	 * next layer */
-	dispatch_table->GetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)gpa(
+	table->GetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)gpa(
 		*p_inst, "vkGetInstanceProcAddr");
-	dispatch_table->DestroyInstance =
+	table->DestroyInstance =
 		(PFN_vkDestroyInstance)gpa(*p_inst, "vkDestroyInstance");
-	dispatch_table->EnumerateDeviceExtensionProperties =
+	table->EnumerateDeviceExtensionProperties =
 		(PFN_vkEnumerateDeviceExtensionProperties)gpa(
 			*p_inst, "vkEnumerateDeviceExtensionProperties");
-	dispatch_table->EnumeratePhysicalDevices =
-		(PFN_vkEnumeratePhysicalDevices)gpa(
-			*p_inst, "vkEnumeratePhysicalDevices");
-	dispatch_table->CreateWin32SurfaceKHR =
-		(PFN_vkCreateWin32SurfaceKHR)gpa(*p_inst,
-						 "vkCreateWin32SurfaceKHR");
+	table->EnumeratePhysicalDevices = (PFN_vkEnumeratePhysicalDevices)gpa(
+		*p_inst, "vkEnumeratePhysicalDevices");
+	table->CreateWin32SurfaceKHR = (PFN_vkCreateWin32SurfaceKHR)gpa(
+		*p_inst, "vkCreateWin32SurfaceKHR");
 
-	dispatch_table->GetPhysicalDeviceQueueFamilyProperties =
+	table->GetPhysicalDeviceQueueFamilyProperties =
 		(PFN_vkGetPhysicalDeviceQueueFamilyProperties)gpa(
 			*p_inst, "vkGetPhysicalDeviceQueueFamilyProperties");
-	dispatch_table->GetPhysicalDeviceMemoryProperties =
+	table->GetPhysicalDeviceMemoryProperties =
 		(PFN_vkGetPhysicalDeviceMemoryProperties)gpa(
 			*p_inst, "vkGetPhysicalDeviceMemoryProperties");
-	dispatch_table->GetPhysicalDeviceImageFormatProperties2KHR =
+	table->GetPhysicalDeviceImageFormatProperties2KHR =
 		(PFN_vkGetPhysicalDeviceImageFormatProperties2KHR)gpa(
 			*p_inst,
 			"vkGetPhysicalDeviceImageFormatProperties2KHR");
@@ -729,9 +724,8 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *info,
 EXPORT VkResult VKAPI
 OBS_DestroyInstance(VkInstance instance, const VkAllocationCallbacks *allocator)
 {
-	VkLayerInstanceDispatchTable *dispatch_table =
-		get_inst_table(TOKEY(instance));
-	dispatch_table->DestroyInstance(instance, allocator);
+	VkLayerInstanceDispatchTable *table = get_inst_table(TOKEY(instance));
+	table->DestroyInstance(instance, allocator);
 	remove_instance(instance);
 	return VK_SUCCESS;
 }
@@ -803,11 +797,10 @@ static VkResult VKAPI OBS_EnumeratePhysicalDevices(
 	VkInstance instance, uint32_t *p_count, VkPhysicalDevice *phy_devices)
 {
 	struct vk_inst_data *inst_data = get_inst_data(TOKEY(instance));
-	VkLayerInstanceDispatchTable *dispatch_table =
-		&inst_data->dispatch_table;
+	VkLayerInstanceDispatchTable *table = &inst_data->table;
 
-	VkResult res = dispatch_table->EnumeratePhysicalDevices(
-		instance, p_count, phy_devices);
+	VkResult res =
+		table->EnumeratePhysicalDevices(instance, p_count, phy_devices);
 
 	if (res == VK_SUCCESS) {
 		uint32_t physical_count = *p_count;
@@ -976,7 +969,7 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 	}
 
 	/* retrieve a usable queue, in order to issue our copy command */
-	uint32_t family_idx = 0;
+	uint32_t fam_idx = 0;
 #pragma region(usablequeue)
 	/* find or create a usable queue */
 	uint32_t prop_count = 0;
@@ -1010,7 +1003,7 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 		if ((idx < prop_count) &&
 		    (queue_fam_props[idx].queueFlags & search) == search &&
 		    info->pQueueCreateInfos[i].queueCount > 0) {
-			family_idx = idx;
+			fam_idx = idx;
 			found = true;
 			break;
 		}
@@ -1021,7 +1014,7 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 		for (uint32_t i = 0; i < prop_count; i++) {
 			if ((queue_fam_props[i].queueFlags & search) ==
 			    search) {
-				family_idx = i;
+				fam_idx = i;
 				found = true;
 				break;
 			}
@@ -1040,7 +1033,7 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 			       info->queueCreateInfoCount);
 
 		mod_queues[info->queueCreateInfoCount].queueFamilyIndex =
-			family_idx;
+			fam_idx;
 		mod_queues[info->queueCreateInfoCount].queueCount = 1;
 		mod_queues[info->queueCreateInfoCount].pQueuePriorities = &one;
 		mod_queues[info->queueCreateInfoCount].sType =
@@ -1085,10 +1078,10 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 
 	/* store the table by key */
 	struct vk_data *data = get_device_data(TOKEY(*p_device));
-	VkLayerDispatchTable *dispatch_table = &data->dispatch_table;
+	VkLayerDispatchTable *table = &data->table;
 
-	/* store the queue_family_idx needed for graphics command */
-	data->queue_family_idx = family_idx;
+	/* store the queue_fam_idx needed for graphics command */
+	data->queue_fam_idx = fam_idx;
 
 	/* store the phy_device on which device is created */
 	data->phy_device = phy_device;
@@ -1098,75 +1091,72 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 
 	/* feed our dispatch table for the functions we need (function pointer
 	 * into the next layer) */
-	dispatch_table->GetDeviceProcAddr =
+	table->GetDeviceProcAddr =
 		(PFN_vkGetDeviceProcAddr)gdpa(*p_device, "vkGetDeviceProcAddr");
-	dispatch_table->DestroyDevice =
+	table->DestroyDevice =
 		(PFN_vkDestroyDevice)gdpa(*p_device, "vkDestroyDevice");
 
-	dispatch_table->CreateSwapchainKHR = (PFN_vkCreateSwapchainKHR)gdpa(
+	table->CreateSwapchainKHR = (PFN_vkCreateSwapchainKHR)gdpa(
 		*p_device, "vkCreateSwapchainKHR");
-	dispatch_table->DestroySwapchainKHR = (PFN_vkDestroySwapchainKHR)gdpa(
+	table->DestroySwapchainKHR = (PFN_vkDestroySwapchainKHR)gdpa(
 		*p_device, "vkDestroySwapchainKHR");
-	dispatch_table->QueuePresentKHR =
+	table->QueuePresentKHR =
 		(PFN_vkQueuePresentKHR)gdpa(*p_device, "vkQueuePresentKHR");
 
-	dispatch_table->AllocateMemory =
+	table->AllocateMemory =
 		(PFN_vkAllocateMemory)gdpa(*p_device, "vkAllocateMemory");
-	dispatch_table->FreeMemory =
-		(PFN_vkFreeMemory)gdpa(*p_device, "vkFreeMemory");
-	dispatch_table->BindImageMemory =
+	table->FreeMemory = (PFN_vkFreeMemory)gdpa(*p_device, "vkFreeMemory");
+	table->BindImageMemory =
 		(PFN_vkBindImageMemory)gdpa(*p_device, "vkBindImageMemory");
-	dispatch_table->BindImageMemory2KHR = (PFN_vkBindImageMemory2KHR)gdpa(
+	table->BindImageMemory2KHR = (PFN_vkBindImageMemory2KHR)gdpa(
 		*p_device, "vkBindImageMemory2KHR");
 
-	dispatch_table->GetSwapchainImagesKHR =
-		(PFN_vkGetSwapchainImagesKHR)gdpa(*p_device,
-						  "vkGetSwapchainImagesKHR");
+	table->GetSwapchainImagesKHR = (PFN_vkGetSwapchainImagesKHR)gdpa(
+		*p_device, "vkGetSwapchainImagesKHR");
 
-	dispatch_table->CreateImage =
+	table->CreateImage =
 		(PFN_vkCreateImage)gdpa(*p_device, "vkCreateImage");
-	dispatch_table->DestroyImage =
+	table->DestroyImage =
 		(PFN_vkDestroyImage)gdpa(*p_device, "vkDestroyImage");
-	dispatch_table->GetImageMemoryRequirements =
+	table->GetImageMemoryRequirements =
 		(PFN_vkGetImageMemoryRequirements)gdpa(
 			*p_device, "vkGetImageMemoryRequirements");
-	dispatch_table->GetImageMemoryRequirements2KHR =
+	table->GetImageMemoryRequirements2KHR =
 		(PFN_vkGetImageMemoryRequirements2KHR)gdpa(
 			*p_device, "vkGetImageMemoryRequirements2KHR");
 
-	dispatch_table->BeginCommandBuffer = (PFN_vkBeginCommandBuffer)gdpa(
+	table->BeginCommandBuffer = (PFN_vkBeginCommandBuffer)gdpa(
 		*p_device, "vkBeginCommandBuffer");
-	dispatch_table->EndCommandBuffer =
+	table->EndCommandBuffer =
 		(PFN_vkEndCommandBuffer)gdpa(*p_device, "vkEndCommandBuffer");
 
-	dispatch_table->CmdCopyImage =
+	table->CmdCopyImage =
 		(PFN_vkCmdCopyImage)gdpa(*p_device, "vkCmdCopyImage");
 #if 0
 	/* might help handling formats */
-	dispatch_table->CmdBlitImage = (PFN_vkCmdBlitImage)gdpa(*p_device,
+	table->CmdBlitImage = (PFN_vkCmdBlitImage)gdpa(*p_device,
 			"vkCmdBlitImage");
 #endif
 
-	dispatch_table->CmdPipelineBarrier = (PFN_vkCmdPipelineBarrier)gdpa(
+	table->CmdPipelineBarrier = (PFN_vkCmdPipelineBarrier)gdpa(
 		*p_device, "vkCmdPipelineBarrier");
-	dispatch_table->GetDeviceQueue =
+	table->GetDeviceQueue =
 		(PFN_vkGetDeviceQueue)gdpa(*p_device, "vkGetDeviceQueue");
-	dispatch_table->QueueSubmit =
+	table->QueueSubmit =
 		(PFN_vkQueueSubmit)gdpa(*p_device, "vkQueueSubmit");
 
-	dispatch_table->QueueWaitIdle =
+	table->QueueWaitIdle =
 		(PFN_vkQueueWaitIdle)gdpa(*p_device, "vkQueueWaitIdle");
-	dispatch_table->DeviceWaitIdle =
+	table->DeviceWaitIdle =
 		(PFN_vkDeviceWaitIdle)gdpa(*p_device, "vkDeviceWaitIdle");
 
-	dispatch_table->CreateCommandPool =
+	table->CreateCommandPool =
 		(PFN_vkCreateCommandPool)gdpa(*p_device, "vkCreateCommandPool");
-	dispatch_table->AllocateCommandBuffers =
-		(PFN_vkAllocateCommandBuffers)gdpa(*p_device,
-						   "vkAllocateCommandBuffers");
+	table->AllocateCommandBuffers = (PFN_vkAllocateCommandBuffers)gdpa(
+		*p_device, "vkAllocateCommandBuffers");
 
 	/* retrieve the queue */
-	dispatch_table->GetDeviceQueue(*p_device, family_idx, 0, &data->queue);
+	table->GetDeviceQueue(*p_device, fam_idx, 0, &data->queue);
 
 	if (data->cmd_pool == VK_NULL_HANDLE) {
 		VkCommandPoolCreateInfo pool_info;
@@ -1174,10 +1164,10 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 		pool_info.pNext = NULL;
 		pool_info.flags =
 			VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-		pool_info.queueFamilyIndex = family_idx;
+		pool_info.queueFamilyIndex = fam_idx;
 
-		VkResult res = dispatch_table->CreateCommandPool(
-			*p_device, &pool_info, NULL, &data->cmd_pool);
+		VkResult res = table->CreateCommandPool(*p_device, &pool_info,
+							NULL, &data->cmd_pool);
 		DbgOutRes("# OBS_Layer # CreateCommandPool %s\n", res);
 
 		VkCommandBufferAllocateInfo cmd_info;
@@ -1187,8 +1177,8 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 		cmd_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 		cmd_info.commandBufferCount = 1;
 
-		res = dispatch_table->AllocateCommandBuffers(
-			*p_device, &cmd_info, &data->cmd_buffer);
+		res = table->AllocateCommandBuffers(*p_device, &cmd_info,
+						    &data->cmd_buffer);
 		DbgOutRes("# OBS_Layer # AllocateCommandBuffers %s\n", res);
 	}
 
@@ -1216,12 +1206,12 @@ OBS_CreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *info,
 		       const VkAllocationCallbacks *ac, VkSwapchainKHR *p_sc)
 {
 	struct vk_data *data = get_device_data(TOKEY(device));
-	VkLayerDispatchTable *table = &data->dispatch_table;
+	VkLayerDispatchTable *table = &data->table;
 
 	struct swap_data *swap = get_new_swap_data(data);
 
 	swap->surf = info->surface;
-	swap->img_extent = info->imageExtent;
+	swap->image_extent = info->imageExtent;
 	swap->format = info->imageFormat;
 
 	VkResult res = table->CreateSwapchainKHR(device, info, ac, p_sc);
@@ -1248,7 +1238,7 @@ static void VKAPI OBS_DestroySwapchainKHR(VkDevice device, VkSwapchainKHR sc,
 					  const VkAllocationCallbacks *ac)
 {
 	struct vk_data *data = get_device_data(TOKEY(device));
-	VkLayerDispatchTable *table = &data->dispatch_table;
+	VkLayerDispatchTable *table = &data->table;
 
 	struct swap_data *swap = get_swap_data(data, sc);
 	if (swap) {
@@ -1358,8 +1348,8 @@ static void vk_capture(struct vk_data *data, VkLayerDispatchTable *table,
 	cpy.dstOffset.x = 0;
 	cpy.dstOffset.y = 0;
 	cpy.dstOffset.z = 0;
-	cpy.extent.width = swap->img_extent.width;
-	cpy.extent.height = swap->img_extent.height;
+	cpy.extent.width = swap->image_extent.width;
+	cpy.extent.height = swap->image_extent.height;
 	cpy.extent.depth = 1;
 	table->CmdCopyImage(data->cmd_buffer, cur_backbuffer,
 			    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -1411,7 +1401,7 @@ static VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
 					  const VkPresentInfoKHR *info)
 {
 	struct vk_data *data = get_device_data(TOKEY(queue));
-	VkLayerDispatchTable *table = &data->dispatch_table;
+	VkLayerDispatchTable *table = &data->table;
 
 	DbgOut2("# OBS_Layer # QueuePresentKHR called on "
 		"devicekey %p, swapchaincount %d\n",
@@ -1438,10 +1428,10 @@ static VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
 			    vk_shtex_init_vulkan_tex(data, swap)) {
 				swap->captured = capture_init_shtex(
 					&swap->shtex_info, window,
-					swap->img_extent.width,
-					swap->img_extent.height,
-					swap->img_extent.width,
-					swap->img_extent.height,
+					swap->image_extent.width,
+					swap->image_extent.height,
+					swap->image_extent.width,
+					swap->image_extent.height,
 					(uint32_t)swap->format, false,
 					(uintptr_t)swap->handle);
 			}
@@ -1474,8 +1464,8 @@ static VkResult VKAPI OBS_CreateWin32SurfaceKHR(
 	struct vk_inst_data *inst_data = get_inst_data(TOKEY(inst));
 	DbgOut("# OBS_Layer # CreateWin32SurfaceKHR\n");
 
-	VkResult res = inst_data->dispatch_table.CreateWin32SurfaceKHR(
-		inst, info, ac, surf);
+	VkResult res =
+		inst_data->table.CreateWin32SurfaceKHR(inst, info, ac, surf);
 	if (NULL != surf && VK_NULL_HANDLE != *surf) {
 		struct vk_surf_data *surf_data =
 			find_surf_data(inst_data, *surf);
