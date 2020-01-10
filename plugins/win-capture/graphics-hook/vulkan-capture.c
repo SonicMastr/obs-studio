@@ -485,20 +485,16 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 
 	if (data->external_mem_props.externalMemoryFeatures &
 	    VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT_KHR) {
-		VkMemoryDedicatedRequirementsKHR dedicated_req;
-		memset(&dedicated_req, 0, sizeof(dedicated_req));
+		VkMemoryDedicatedRequirementsKHR dedicated_req = {0};
 		dedicated_req.sType =
 			VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS_KHR;
 		dedicated_req.pNext = NULL;
 
-		VkMemoryRequirements2KHR mem_req2;
-		memset(&mem_req2, 0, sizeof(VkMemoryRequirements2KHR));
+		VkMemoryRequirements2KHR mem_req2 = {0};
 		mem_req2.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2_KHR;
 		mem_req2.pNext = &dedicated_req;
 
-		VkImageMemoryRequirementsInfo2KHR img_req_info2;
-		memset(&img_req_info2, 0,
-		       sizeof(VkImageMemoryRequirementsInfo2KHR));
+		VkImageMemoryRequirementsInfo2KHR img_req_info2 = {0};
 		img_req_info2.sType =
 			VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2_KHR;
 		img_req_info2.pNext = NULL;
@@ -573,8 +569,7 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 					     swap->export_mem, 0);
 		DbgOutRes("# OBS_Layer # BindImageMemory %s\n", res);
 	} else {
-		VkBindImageMemoryInfoKHR bind_info;
-		memset(&bind_info, 0, sizeof(VkBindImageMemoryInfoKHR));
+		VkBindImageMemoryInfoKHR bind_info = {0};
 		bind_info.sType = VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_INFO;
 		bind_info.image = swap->export_image;
 		bind_info.memory = swap->export_mem;
@@ -595,14 +590,12 @@ bool init_vk_layer()
 		InitializeCriticalSection(&mutex);
 
 		inst_count = 0;
-		memset(&inst_table, 0,
-		       sizeof(struct vk_inst_data) * MAX_INSTANCE_COUNT);
-		memset(&inst_keys, 0, sizeof(void *) * MAX_INSTANCE_COUNT);
+		memset(&inst_table, 0, sizeof(inst_table));
+		memset(&inst_keys, 0, sizeof(inst_keys));
 
 		device_count = 0;
-		memset(&device_table, 0,
-		       sizeof(struct vk_data) * MAX_DEVICE_COUNT);
-		memset(&devices, 0, sizeof(void *) * MAX_DEVICE_COUNT);
+		memset(&device_table, 0, sizeof(device_table));
+		memset(&devices, 0, sizeof(devices));
 
 		initialized = true;
 	}
@@ -865,14 +858,12 @@ vk_shared_tex_supported(VkLayerInstanceDispatchTable *table,
 	info.flags = 0;
 	info.usage = usage;
 
-	VkExternalImageFormatPropertiesKHR external_props;
-	memset(&external_props, 0, sizeof(VkExternalImageFormatPropertiesKHR));
+	VkExternalImageFormatPropertiesKHR external_props = {0};
 	external_props.sType =
 		VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES_KHR;
 	external_props.pNext = NULL;
 
-	VkImageFormatProperties2KHR props;
-	memset(&props, 0, sizeof(props));
+	VkImageFormatProperties2KHR props = {0};
 	props.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2_KHR;
 	props.pNext = &external_props;
 
