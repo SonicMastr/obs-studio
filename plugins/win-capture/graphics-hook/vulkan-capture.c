@@ -83,7 +83,8 @@ static struct swap_data *get_swap_data(struct vk_data *data, VkSwapchainKHR sc)
 			return &data->swaps[i];
 		}
 	}
-	DbgOut("# OBS_Layer # get_swap_data failed, swapchain not found\n");
+
+	debug("get_swap_data failed, swapchain not found");
 	return NULL;
 }
 
@@ -94,7 +95,8 @@ static struct swap_data *get_new_swap_data(struct vk_data *data)
 			return &data->swaps[i];
 		}
 	}
-	DbgOut("# OBS_Layer # get_new_swap_data failed, no more free slot\n");
+
+	debug("get_new_swap_data failed, no more free slot");
 	return NULL;
 }
 
@@ -124,7 +126,7 @@ static struct vk_data *get_device_data(void *dev)
 	if (idx < device_count) {
 		data = &device_table[idx];
 	} else if (device_count >= MAX_DEVICE_COUNT - 1) {
-		DbgOut("# OBS_Layer # Out of Device Slot\n");
+		debug("out of device slots");
 	} else {
 		struct vk_data *new_device_data = &device_table[device_count];
 		devices[device_count] = dev;
@@ -219,7 +221,7 @@ static struct vk_surf_data *find_surf_data(struct vk_inst_data *inst_data,
 		return &inst_data->surfaces[idx];
 	}
 
-	DbgOut("# OBS_Layer # find_surf_data failed, no more free slot\n");
+	debug("find_surf_data failed, no more free slots");
 	return NULL;
 }
 
@@ -248,7 +250,7 @@ static struct vk_inst_data *get_inst_data(void *inst)
 	if (idx < inst_count) {
 		inst_data = &inst_table[idx];
 	} else if (inst_count >= MAX_INSTANCE_COUNT - 1) {
-		DbgOut("# OBS_Layer # Out of Instance Slot\n");
+		debug("out of instance slots");
 	} else {
 
 		struct vk_inst_data *newInstanceData = &inst_table[inst_count];
@@ -471,7 +473,11 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 	VkResult res;
 	res = table->CreateImage(data->device, &create_info, NULL,
 				 &swap->export_image);
-	DbgOutRes("# OBS_Layer # CreateImage %s\n", res);
+	if (VK_SUCCESS != res) {
+		flog("failed to CreateImage: %s", result_to_str(res));
+		swap->export_image = NULL;
+		return false;
+	}
 
 	VkExportMemoryAllocateInfo export_info;
 	export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO;
@@ -552,8 +558,6 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 
 	res = table->AllocateMemory(data->device, &mem_info, NULL,
 				    &swap->export_mem);
-	DbgOutRes("# OBS_Layer # AllocateMemory %s\n", res);
-
 	if (VK_SUCCESS != res) {
 		flog("failed to AllocateMemory: %s", result_to_str(res));
 		table->DestroyImage(data->device, swap->export_image, NULL);
@@ -561,21 +565,26 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 		return false;
 	}
 
-	if (!(data->external_mem_props.externalMemoryFeatures &
-	      VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT_KHR)) {
-		res = table->BindImageMemory(data->device, swap->export_image,
-					     swap->export_mem, 0);
-		DbgOutRes("# OBS_Layer # BindImageMemory %s\n", res);
-	} else {
+	VkExternalMemoryFeatureFlags f =
+		data->external_mem_props.externalMemoryFeatures;
+	bool use_bi2 =
+		(f & VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT_KHR) != 0;
+
+	if (use_bi2) {
 		VkBindImageMemoryInfoKHR bind_info = {0};
 		bind_info.sType = VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_INFO;
 		bind_info.image = swap->export_image;
 		bind_info.memory = swap->export_mem;
 		bind_info.memoryOffset = 0;
 		res = table->BindImageMemory2KHR(data->device, 1, &bind_info);
-		DbgOutRes("# OBS_Layer # BindImageMemory2KHR %s\n", res);
+	} else {
+		res = table->BindImageMemory(data->device, swap->export_image,
+					     swap->export_mem, 0);
 	}
 	if (VK_SUCCESS != res) {
+		flog("%s failed: %s",
+		     use_bi2 ? "BindImageMemory2KHR" : "BindImageMemory",
+		     result_to_str(res));
 		table->DestroyImage(data->device, swap->export_image, NULL);
 		return false;
 	}
@@ -823,9 +832,9 @@ static VkResult VKAPI OBS_EnumeratePhysicalDevices(
 	if (res == VK_SUCCESS) {
 		if (count > MAX_PHYSICALDEVICE_COUNT) {
 			count = MAX_PHYSICALDEVICE_COUNT;
-			DbgOut2("# OBS_Layer # Out of physical device "
-				"storage for instance %p, clamping to %d\n",
-				inst, physical_count);
+			debug("out of physical device storage for "
+			      "instance %p, clamping to %d",
+			      inst, count);
 		}
 		inst_data->phy_device_count = count;
 
@@ -921,8 +930,8 @@ static bool vk_init_req_extensions(VkPhysicalDevice phy_device,
 	}
 
 	if (req_ext_found != req_ext_count) {
-		DbgOut("# OBS_Layer # Needed device extensions "
-		       "are not available\n");
+		debug("device extensions needed to perform capture "
+		      "are not available");
 		return false;
 	}
 
@@ -1132,7 +1141,7 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 
 		VkResult res = table->CreateCommandPool(device, &cpci, NULL,
 							&data->cmd_pool);
-		DbgOutRes("# OBS_Layer # CreateCommandPool %s\n", res);
+		debug_res("CreateCommandPool", res);
 
 		VkCommandBufferAllocateInfo cbai;
 		cbai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -1143,7 +1152,7 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 
 		res = table->AllocateCommandBuffers(device, &cbai,
 						    &data->cmd_buffer);
-		DbgOutRes("# OBS_Layer # AllocateCommandBuffers %s\n", res);
+		debug_res("AllocateCommandBuffers", res);
 	}
 
 	VkFormat format = VK_FORMAT_R8G8B8A8_UNORM;
@@ -1188,7 +1197,7 @@ OBS_CreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *info,
 
 	uint32_t count = 0;
 	res = table->GetSwapchainImagesKHR(data->device, sc, &count, NULL);
-	DbgOutRes("# OBS_Layer # GetSwapchainImagesKHR %s\n", res);
+	debug_res("GetSwapchainImagesKHR", res);
 
 	if (count > 0) {
 		if (count > MAX_IMAGES_PER_SWAPCHAIN)
@@ -1196,7 +1205,7 @@ OBS_CreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *info,
 
 		res = table->GetSwapchainImagesKHR(data->device, sc, &count,
 						   swap->swap_images);
-		DbgOutRes("# OBS_Layer # GetSwapchainImagesKHR %s\n", res);
+		debug_res("GetSwapchainImagesKHR", res);
 	}
 
 	swap->sc = sc;
@@ -1246,7 +1255,7 @@ static void vk_capture(struct vk_data *data, VkLayerDispatchTable *table,
 	/* do image copy                                          */
 
 	res = table->BeginCommandBuffer(data->cmd_buffer, &begin_info);
-	DbgOutRes("# OBS_Layer # BeginCommandBuffer %s\n", res);
+	debug_res("BeginCommandBuffer", res);
 
 	VkImage cur_backbuffer = swap->swap_images[info->pImageIndices[idx]];
 
@@ -1361,7 +1370,7 @@ static void vk_capture(struct vk_data *data, VkLayerDispatchTable *table,
 	VkFence null_fence = {VK_NULL_HANDLE};
 
 	res = table->QueueSubmit(data->queue, 1, &submit_info, null_fence);
-	DbgOutRes("# OBS_Layer # QueueSubmit %s\n", res);
+	debug_res("QueueSubmit", res);
 }
 
 static VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
@@ -1370,9 +1379,9 @@ static VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
 	struct vk_data *data = get_device_data(TOKEY(queue));
 	VkLayerDispatchTable *table = &data->table;
 
-	DbgOut2("# OBS_Layer # QueuePresentKHR called on "
-		"devicekey %p, swapchaincount %d\n",
-		table, info->swapCount);
+	debug("QueuePresentKHR called on "
+	      "devicekey %p, swapchain count %d",
+	      table, info->swapchainCount);
 
 	for (uint32_t i = 0; i < info->swapchainCount; i++) {
 		struct swap_data *swap =
@@ -1429,7 +1438,6 @@ static VkResult VKAPI OBS_CreateWin32SurfaceKHR(
 	const VkAllocationCallbacks *ac, VkSurfaceKHR *surf)
 {
 	struct vk_inst_data *inst_data = get_inst_data(TOKEY(inst));
-	DbgOut("# OBS_Layer # CreateWin32SurfaceKHR\n");
 
 	VkResult res =
 		inst_data->table.CreateWin32SurfaceKHR(inst, info, ac, surf);
@@ -1449,9 +1457,7 @@ static VkResult VKAPI OBS_CreateWin32SurfaceKHR(
 
 EXPORT VkFunc VKAPI OBS_GetDeviceProcAddr(VkDevice dev, const char *name)
 {
-	DbgOutProcAddr(
-		"# OBS_Layer # vkGetDeviceProcAddr [%s] called on device %p\n",
-		name, dev);
+	debug_procaddr("vkGetDeviceProcAddr(%p, \"%s\")", dev, name);
 
 	GETPROCADDR(GetDeviceProcAddr);
 	GETPROCADDR(EnumerateDeviceExtensionProperties);
@@ -1470,9 +1476,7 @@ EXPORT VkFunc VKAPI OBS_GetDeviceProcAddr(VkDevice dev, const char *name)
 
 EXPORT VkFunc VKAPI OBS_GetInstanceProcAddr(VkInstance inst, const char *name)
 {
-	DbgOutProcAddr("# OBS_Layer # vkGetInstanceProcAddr [%s] "
-		       "called on instance %p\n",
-		       name, instance);
+	debug_procaddr("vkGetInstanceProcAddr(%p, \"%s\")", inst, name);
 
 	/* instance chain functions we intercept */
 	GETPROCADDR(GetInstanceProcAddr);

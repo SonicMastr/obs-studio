@@ -804,39 +804,28 @@ DXGI_FORMAT vk_format_to_dxgi(VkFormat format)
 	return dxgi_format;
 }
 
+//#define DEBUG_PRINT
+//#define DEBUG_PRINT_PROCADDR
+
 #ifdef DEBUG_PRINT
 #include <stdio.h>
-#define DbgOut(x) OutputDebugStringA(x)
-#define DbgOut1(x, y)                  \
-	{                              \
-		char string[256];      \
-		sprintf(string, x, y); \
-		DbgOut(string);        \
-	}
+#define debug(format, ...)                                        \
+	do {                                                      \
+		char str[256];                                    \
+		snprintf(str, sizeof(str) - 1, "%s " format "\n", \
+			 "[OBS graphics-hook]", ##__VA_ARGS__);   \
+		OutputDebugStringA(str);                          \
+	} while (false)
 
-#define DbgOut2(x, y, z)                  \
-	{                                 \
-		char string[256];         \
-		sprintf(string, x, y, z); \
-		DbgOut(string);           \
-	}
+#define debug_res(x, y) debug("%s result: %s", x, result_to_str(y))
 
-#if defined(DEBUG_PRINT_PROCADDR)
-#define DbgOutProcAddr(x, y, z) DbgOut2(x, y, z)
 #else
-#define DbgOutProcAddr(x, y, z)
+#define debug(x, ...)
+#define debug_res(x, y)
 #endif
-#define DbgOutRes(x, y)                                \
-	{                                              \
-		char string[256];                      \
-		sprintf(string, x, result_to_str(y)); \
-		DbgOut(string);                        \
-	}
 
+#ifdef DEBUG_PRINT_PROCADDR
+#define debug_procaddr(format, ...) debug(format, ##__VA_ARGS__)
 #else
-#define DbgOut(x)
-#define DbgOut1(x, y)
-#define DbgOut2(x, y, z)
-#define DbgOutProcAddr(x, y, z)
-#define DbgOutRes(x, y)
+#define debug_procaddr(format, ...)
 #endif
