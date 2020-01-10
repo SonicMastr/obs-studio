@@ -624,8 +624,8 @@ struct ext_spec {
 
 #define get_ext_spec(x) ((struct ext_spec *)(&x->enabledExtensionCount))
 
-static void vk_enable_req_extensions(struct ext_spec *spec,
-				     struct ext_info *exts, size_t count)
+static void vk_enable_exts(struct ext_spec *spec, struct ext_info *exts,
+			   size_t count)
 {
 	size_t enable_count = count;
 
@@ -701,7 +701,7 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 
 	const size_t req_ext_count = sizeof(req_ext) / sizeof(req_ext[0]);
 
-	vk_enable_req_extensions(get_ext_spec(info), req_ext, req_ext_count);
+	vk_enable_exts(get_ext_spec(info), req_ext, req_ext_count);
 
 	/* -------------------------------------------------------- */
 	/* create instance                                          */
@@ -921,7 +921,7 @@ static bool vk_init_req_extensions(VkPhysicalDevice phy_device,
 		return false;
 	}
 
-	vk_enable_req_extensions(get_ext_spec(info), req_ext, req_ext_count);
+	vk_enable_exts(get_ext_spec(info), req_ext, req_ext_count);
 	return true;
 }
 
