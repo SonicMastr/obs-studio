@@ -2,7 +2,7 @@
 
 #define DEF_FUNC(x) PFN_vk##x x
 
-struct inst_funcs {
+struct vk_inst_funcs {
 	DEF_FUNC(GetInstanceProcAddr);
 	DEF_FUNC(DestroyInstance);
 	DEF_FUNC(EnumerateDeviceExtensionProperties);
@@ -12,7 +12,7 @@ struct inst_funcs {
 	DEF_FUNC(GetPhysicalDeviceImageFormatProperties2KHR);
 };
 
-struct device_funcs {
+struct vk_device_funcs {
 	DEF_FUNC(GetDeviceProcAddr);
 	DEF_FUNC(DestroyDevice);
 	DEF_FUNC(CreateSwapchainKHR);
