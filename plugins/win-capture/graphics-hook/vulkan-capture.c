@@ -156,12 +156,6 @@ static inline struct vk_data *get_device_data(void *dev)
 	return &device_data[idx];
 }
 
-static inline VkLayerDispatchTable *get_table(void *dev)
-{
-	struct vk_data *data = get_device_data(dev);
-	return &data->table;
-}
-
 static void vk_remove_device(void *dev)
 {
 	size_t idx = find_obj_idx(devices, dev);
@@ -1416,6 +1410,9 @@ static VkResult VKAPI OBS_CreateWin32SurfaceKHR(
 
 EXPORT VkFunc VKAPI OBS_GetDeviceProcAddr(VkDevice dev, const char *name)
 {
+	struct vk_data *data = get_device_data(dev);
+	VkLayerDispatchTable *table = &data->table;
+
 	debug_procaddr("vkGetDeviceProcAddr(%p, \"%s\")", dev, name);
 
 	GETPROCADDR(GetDeviceProcAddr);
@@ -1426,7 +1423,6 @@ EXPORT VkFunc VKAPI OBS_GetDeviceProcAddr(VkDevice dev, const char *name)
 	GETPROCADDR(DestroySwapchainKHR);
 	GETPROCADDR(QueuePresentKHR);
 
-	VkLayerDispatchTable *table = get_table(TOKEY(dev));
 	if (table->GetDeviceProcAddr == NULL)
 		return NULL;
 	return table->GetDeviceProcAddr(dev, name);
