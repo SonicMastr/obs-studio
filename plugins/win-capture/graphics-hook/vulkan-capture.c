@@ -33,7 +33,7 @@
 #define OBJ_MAX 16
 
 /* use the loader's dispatch table pointer as a key for dispatch map lookups */
-#define TOKEY(x) (*(void **)x)
+#define GET_LDT(x) (*(void **)x)
 
 #define DUMMY_WINDOW_CLASS_NAME L"graphics_hook_vk_dummy_window"
 
@@ -146,7 +146,7 @@ static void *devices[OBJ_MAX] = {0};
 
 static inline struct vk_data *get_device_data(void *dev)
 {
-	size_t idx = get_obj_idx(devices, dev);
+	size_t idx = get_obj_idx(devices, GET_LDT(dev));
 	if (idx == SIZE_MAX) {
 		debug("out of device slots");
 		return NULL;
@@ -157,7 +157,7 @@ static inline struct vk_data *get_device_data(void *dev)
 
 static void vk_remove_device(void *dev)
 {
-	size_t idx = find_obj_idx(devices, dev);
+	size_t idx = find_obj_idx(devices, GET_LDT(dev));
 	if (idx == SIZE_MAX) {
 		return;
 	}
@@ -240,7 +240,7 @@ static void *instances[OBJ_MAX] = {0};
 
 static struct vk_inst_data *get_inst_data(void *inst)
 {
-	size_t idx = get_obj_idx(instances, inst);
+	size_t idx = get_obj_idx(instances, GET_LDT(inst));
 	if (idx == SIZE_MAX) {
 		debug("out of instance slots");
 		return NULL;
@@ -518,7 +518,7 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 	/* -------------------------------------------------------- */
 	/* get memory type index                                    */
 
-	struct inst_funcs *inst_table = get_inst_funcs(TOKEY(data->phy_device));
+	struct inst_funcs *inst_table = get_inst_funcs(data->phy_device);
 
 	VkPhysicalDeviceMemoryProperties pdmp;
 	inst_table->GetPhysicalDeviceMemoryProperties(data->phy_device, &pdmp);
@@ -771,7 +771,7 @@ static inline HWND get_swap_window(struct swap_data *swap)
 static VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
 					  const VkPresentInfoKHR *info)
 {
-	struct vk_data *data = get_device_data(TOKEY(queue));
+	struct vk_data *data = get_device_data(queue);
 	struct device_funcs *table = &data->funcs;
 
 	debug("QueuePresentKHR called on "
@@ -906,7 +906,7 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 	/* -------------------------------------------------------- */
 	/* fetch the functions we need                              */
 
-	struct inst_funcs *table = get_inst_funcs(TOKEY(inst));
+	struct inst_funcs *table = get_inst_funcs(inst);
 
 #define GETADDR(x)                                     \
 	do {                                           \
@@ -928,7 +928,7 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 EXPORT VkResult VKAPI OBS_DestroyInstance(VkInstance instance,
 					  const VkAllocationCallbacks *ac)
 {
-	struct inst_funcs *table = get_inst_funcs(TOKEY(instance));
+	struct inst_funcs *table = get_inst_funcs(instance);
 	table->DestroyInstance(instance, ac);
 	remove_instance(instance);
 	return VK_SUCCESS;
@@ -976,7 +976,7 @@ static VkResult VKAPI OBS_EnumerateDeviceExtensionProperties(
 		if (phy_device == VK_NULL_HANDLE)
 			return VK_SUCCESS;
 
-		struct inst_funcs *disp = get_inst_funcs(TOKEY(phy_device));
+		struct inst_funcs *disp = get_inst_funcs(phy_device);
 		return disp->EnumerateDeviceExtensionProperties(
 			phy_device, name, p_count, props);
 	}
@@ -1174,7 +1174,7 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 				       VkDevice *p_device)
 {
 	VkDeviceCreateInfo info = *cinfo;
-	struct inst_funcs *inst_disp = get_inst_funcs(TOKEY(phy_device));
+	struct inst_funcs *inst_disp = get_inst_funcs(phy_device);
 
 	uint32_t fam_idx = 0;
 	void *a = NULL, *b = NULL;
@@ -1220,7 +1220,7 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 	createFunc(phy_device, &info, ac, p_device);
 	VkDevice device = *p_device;
 
-	struct vk_data *data = get_device_data(TOKEY(*p_device));
+	struct vk_data *data = get_device_data(*p_device);
 	struct device_funcs *table = &data->funcs;
 
 	data->queue_fam_idx = fam_idx;
@@ -1309,9 +1309,9 @@ fail:
 static void VKAPI OBS_DestroyDevice(VkDevice device,
 				    const VkAllocationCallbacks *ac)
 {
-	struct vk_data *data = get_device_data(TOKEY(device));
+	struct vk_data *data = get_device_data(device);
 	if (data) {
-		vk_remove_device(TOKEY(device));
+		vk_remove_device(device);
 
 		struct device_funcs *table = &data->funcs;
 		table->DestroyDevice(device, ac);
@@ -1322,7 +1322,7 @@ static VkResult VKAPI
 OBS_CreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *info,
 		       const VkAllocationCallbacks *ac, VkSwapchainKHR *p_sc)
 {
-	struct vk_data *data = get_device_data(TOKEY(device));
+	struct vk_data *data = get_device_data(device);
 	struct device_funcs *table = &data->funcs;
 
 	struct swap_data *swap = get_new_swap_data(data);
@@ -1354,7 +1354,7 @@ OBS_CreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *info,
 static void VKAPI OBS_DestroySwapchainKHR(VkDevice device, VkSwapchainKHR sc,
 					  const VkAllocationCallbacks *ac)
 {
-	struct vk_data *data = get_device_data(TOKEY(device));
+	struct vk_data *data = get_device_data(device);
 	struct device_funcs *table = &data->funcs;
 
 	struct swap_data *swap = get_swap_data(data, sc);
@@ -1380,7 +1380,7 @@ static VkResult VKAPI OBS_CreateWin32SurfaceKHR(
 	VkInstance inst, const VkWin32SurfaceCreateInfoKHR *info,
 	const VkAllocationCallbacks *ac, VkSurfaceKHR *surf)
 {
-	struct vk_inst_data *inst_data = get_inst_data(TOKEY(inst));
+	struct vk_inst_data *inst_data = get_inst_data(inst);
 
 	VkResult res =
 		inst_data->funcs.CreateWin32SurfaceKHR(inst, info, ac, surf);
@@ -1436,7 +1436,7 @@ EXPORT VkFunc VKAPI OBS_GetInstanceProcAddr(VkInstance inst, const char *name)
 	GETPROCADDR(CreateDevice);
 	GETPROCADDR(DestroyDevice);
 
-	struct inst_funcs *table = get_inst_funcs(TOKEY(inst));
+	struct inst_funcs *table = get_inst_funcs(inst);
 	if (table->GetInstanceProcAddr == NULL)
 		return NULL;
 	return table->GetInstanceProcAddr(inst, name);
