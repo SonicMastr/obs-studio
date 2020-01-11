@@ -45,8 +45,7 @@ static const GUID dxgi_resource_guid =
 {0x035f3ab4, 0x482e, 0x4e50, {0xb4, 0x1f, 0x8a, 0x7f, 0x8b, 0xd8, 0x96, 0x0b}};
 /* clang-format on */
 
-static bool initialized = false;
-static bool hooked = false;
+static bool vulkan_seen = false;
 static CRITICAL_SECTION mutex;
 
 /* ======================================================================== */
@@ -271,6 +270,7 @@ static struct vk_inst_data *get_inst_data(void *inst)
 		inst_keys[inst_count] = inst;
 		inst_count++;
 		inst_data = newInstanceData;
+		vulkan_seen = true;
 	}
 	LeaveCriticalSection(&mutex);
 	return inst_data;
@@ -302,8 +302,34 @@ static void remove_instance(void *inst)
 /* ======================================================================== */
 /* capture                                                                  */
 
+static bool vk_register_window(void)
+{
+	WNDCLASSW wc = {0};
+	wc.style = CS_OWNDC;
+	wc.hInstance = GetModuleHandle(NULL);
+	wc.lpfnWndProc = DefWindowProc;
+	wc.lpszClassName = DUMMY_WINDOW_CLASS_NAME;
+
+	if (!RegisterClassW(&wc)) {
+		flog("failed to register window class: %d", GetLastError());
+		return false;
+	}
+
+	return true;
+}
+
 static inline bool vk_shtex_init_window(struct vk_data *data)
 {
+	static bool registered = false;
+	if (!registered) {
+		static bool failure = false;
+		if (failure || !vk_register_window()) {
+			failure = true;
+			return false;
+		}
+		registered = true;
+	}
+
 	data->dummy_hwnd = CreateWindowExW(
 		0, DUMMY_WINDOW_CLASS_NAME, L"Dummy VK window, ignore",
 		WS_POPUP | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0, 0, 2, 2, NULL,
@@ -1521,41 +1547,21 @@ EXPORT VkResult VKAPI OBS_Negotiate(VkNegotiateLayerInterface *nli)
 	return VK_SUCCESS;
 }
 
-#include "graphics-hook.h"
-
-static bool vk_register_window(void)
-{
-	WNDCLASSW wc = {0};
-	wc.style = CS_OWNDC;
-	wc.hInstance = GetModuleHandle(NULL);
-	wc.lpfnWndProc = DefWindowProc;
-	wc.lpszClassName = DUMMY_WINDOW_CLASS_NAME;
-
-	if (!RegisterClassW(&wc)) {
-		flog("failed to register window class: %d", GetLastError());
-		return false;
-	}
-
-	return true;
-}
-
 bool hook_vulkan(void)
 {
-	if (inst_count > 0) {
-		if (!vk_register_window()) {
-			return true;
-		}
+	static bool hooked = false;
+	if (!hooked && vulkan_seen) {
 		hlog("Hooked Vulkan");
 		hooked = true;
-	} else {
-		hooked = false;
 	}
 	return hooked;
 }
 
+static bool vulkan_initialized = false;
+
 bool init_vk_layer()
 {
-	if (!initialized) {
+	if (!vulkan_initialized) {
 		InitializeCriticalSection(&mutex);
 
 		inst_count = 0;
@@ -1566,16 +1572,15 @@ bool init_vk_layer()
 		memset(&device_table, 0, sizeof(device_table));
 		memset(&devices, 0, sizeof(devices));
 
-		initialized = true;
+		vulkan_initialized = true;
 	}
 	return true;
 }
 
 bool shutdown_vk_layer()
 {
-	if (initialized) {
+	if (vulkan_initialized) {
 		DeleteCriticalSection(&mutex);
-		initialized = false;
 	}
 	return true;
 }
