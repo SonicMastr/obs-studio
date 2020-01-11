@@ -1243,35 +1243,26 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 
 	GETADDR(GetDeviceProcAddr);
 	GETADDR(DestroyDevice);
-
 	GETADDR(CreateSwapchainKHR);
 	GETADDR(DestroySwapchainKHR);
 	GETADDR(QueuePresentKHR);
-
 	GETADDR(AllocateMemory);
 	GETADDR(FreeMemory);
 	GETADDR(BindImageMemory);
 	GETADDR(BindImageMemory2KHR);
-
 	GETADDR(GetSwapchainImagesKHR);
-
 	GETADDR(CreateImage);
 	GETADDR(DestroyImage);
 	GETADDR(GetImageMemoryRequirements);
 	GETADDR(GetImageMemoryRequirements2KHR);
-
 	GETADDR(BeginCommandBuffer);
 	GETADDR(EndCommandBuffer);
-
 	GETADDR(CmdCopyImage);
-
 	GETADDR(CmdPipelineBarrier);
 	GETADDR(GetDeviceQueue);
 	GETADDR(QueueSubmit);
-
 	GETADDR(QueueWaitIdle);
 	GETADDR(DeviceWaitIdle);
-
 	GETADDR(CreateCommandPool);
 	GETADDR(AllocateCommandBuffers);
 #undef GETADDR
