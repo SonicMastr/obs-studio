@@ -250,7 +250,7 @@ static struct vk_inst_data *get_inst_data(void *inst)
 	return &inst_data[idx];
 }
 
-static inline struct vk_inst_funcs *get_vk_inst_funcs(void *inst)
+static inline struct vk_inst_funcs *get_inst_funcs(void *inst)
 {
 	struct vk_inst_data *data = get_inst_data(inst);
 	return &data->funcs;
@@ -518,7 +518,7 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 	/* -------------------------------------------------------- */
 	/* get memory type index                                    */
 
-	struct vk_inst_funcs *ifuncs = get_vk_inst_funcs(data->phy_device);
+	struct vk_inst_funcs *ifuncs = get_inst_funcs(data->phy_device);
 
 	VkPhysicalDeviceMemoryProperties pdmp;
 	ifuncs->GetPhysicalDeviceMemoryProperties(data->phy_device, &pdmp);
@@ -907,7 +907,7 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 	/* -------------------------------------------------------- */
 	/* fetch the functions we need                              */
 
-	struct vk_inst_funcs *funcs = get_vk_inst_funcs(inst);
+	struct vk_inst_funcs *funcs = get_inst_funcs(inst);
 
 #define GETADDR(x)                                     \
 	do {                                           \
@@ -929,7 +929,7 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 EXPORT VkResult VKAPI OBS_DestroyInstance(VkInstance instance,
 					  const VkAllocationCallbacks *ac)
 {
-	struct vk_inst_funcs *funcs = get_vk_inst_funcs(instance);
+	struct vk_inst_funcs *funcs = get_inst_funcs(instance);
 	funcs->DestroyInstance(instance, ac);
 	remove_instance(instance);
 	return VK_SUCCESS;
@@ -977,7 +977,7 @@ static VkResult VKAPI OBS_EnumerateDeviceExtensionProperties(
 		if (phy_device == VK_NULL_HANDLE)
 			return VK_SUCCESS;
 
-		struct vk_inst_funcs *funcs = get_vk_inst_funcs(phy_device);
+		struct vk_inst_funcs *funcs = get_inst_funcs(phy_device);
 		return funcs->EnumerateDeviceExtensionProperties(
 			phy_device, name, p_count, props);
 	}
@@ -1176,7 +1176,7 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 				       VkDevice *p_device)
 {
 	VkDeviceCreateInfo info = *cinfo;
-	struct vk_inst_funcs *ifuncs = get_vk_inst_funcs(phy_device);
+	struct vk_inst_funcs *ifuncs = get_inst_funcs(phy_device);
 
 	uint32_t fam_idx = 0;
 	void *a = NULL, *b = NULL;
@@ -1435,7 +1435,7 @@ EXPORT VkFunc VKAPI OBS_GetInstanceProcAddr(VkInstance inst, const char *name)
 	GETPROCADDR(CreateDevice);
 	GETPROCADDR(DestroyDevice);
 
-	struct vk_inst_funcs *funcs = get_vk_inst_funcs(inst);
+	struct vk_inst_funcs *funcs = get_inst_funcs(inst);
 	if (funcs->GetInstanceProcAddr == NULL)
 		return NULL;
 	return funcs->GetInstanceProcAddr(inst, name);
