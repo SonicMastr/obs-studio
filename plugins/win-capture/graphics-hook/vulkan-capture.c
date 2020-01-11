@@ -15,7 +15,6 @@
 #endif
 
 #include <vulkan/vulkan_win32.h>
-#include <../Source/layers/vk_layer_dispatch_table.h>
 
 #define COBJMACROS
 #include <dxgi.h>

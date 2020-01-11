@@ -1,5 +1,46 @@
 #pragma once
 
+#define DEF_FUNC(x) PFN_vk##x x
+
+typedef struct VkLayerInstanceDispatchTable_ {
+	DEF_FUNC(GetInstanceProcAddr);
+	DEF_FUNC(DestroyInstance);
+	DEF_FUNC(EnumerateDeviceExtensionProperties);
+	DEF_FUNC(CreateWin32SurfaceKHR);
+	DEF_FUNC(GetPhysicalDeviceQueueFamilyProperties);
+	DEF_FUNC(GetPhysicalDeviceMemoryProperties);
+	DEF_FUNC(GetPhysicalDeviceImageFormatProperties2KHR);
+} VkLayerInstanceDispatchTable;
+
+typedef struct VkLayerDispatchTable_ {
+	DEF_FUNC(GetDeviceProcAddr);
+	DEF_FUNC(DestroyDevice);
+	DEF_FUNC(CreateSwapchainKHR);
+	DEF_FUNC(DestroySwapchainKHR);
+	DEF_FUNC(QueuePresentKHR);
+	DEF_FUNC(AllocateMemory);
+	DEF_FUNC(FreeMemory);
+	DEF_FUNC(BindImageMemory);
+	DEF_FUNC(BindImageMemory2KHR);
+	DEF_FUNC(GetSwapchainImagesKHR);
+	DEF_FUNC(CreateImage);
+	DEF_FUNC(DestroyImage);
+	DEF_FUNC(GetImageMemoryRequirements);
+	DEF_FUNC(GetImageMemoryRequirements2KHR);
+	DEF_FUNC(BeginCommandBuffer);
+	DEF_FUNC(EndCommandBuffer);
+	DEF_FUNC(CmdCopyImage);
+	DEF_FUNC(CmdPipelineBarrier);
+	DEF_FUNC(GetDeviceQueue);
+	DEF_FUNC(QueueSubmit);
+	DEF_FUNC(QueueWaitIdle);
+	DEF_FUNC(DeviceWaitIdle);
+	DEF_FUNC(CreateCommandPool);
+	DEF_FUNC(AllocateCommandBuffers);
+} VkLayerDispatchTable;
+
+#undef DEF_FUNC
+
 const char *vk_format_to_str(VkFormat format)
 {
 	switch (format) {
