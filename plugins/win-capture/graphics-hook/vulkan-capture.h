@@ -399,6 +399,7 @@ DXGI_FORMAT vk_format_to_dxgi(VkFormat format)
 		dxgi_format = DXGI_FORMAT_R8G8B8A8_UNORM;
 		break; //dota2
 	case VK_FORMAT_B8G8R8A8_UNORM:
+		dxgi_format = DXGI_FORMAT_B8G8R8A8_UNORM;
 		break;
 	case VK_FORMAT_B8G8R8A8_SNORM:
 		break;
