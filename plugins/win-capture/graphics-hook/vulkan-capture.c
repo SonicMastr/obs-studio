@@ -442,121 +442,124 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 					    struct swap_data *swap)
 {
 	VkLayerDispatchTable *table = &data->table;
+	VkExternalMemoryFeatureFlags f =
+		data->external_mem_props.externalMemoryFeatures;
 
-	VkExternalMemoryImageCreateInfoKHR external_mem_image_info;
-	external_mem_image_info.sType =
-		VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO_KHR;
-	external_mem_image_info.pNext = NULL;
-	external_mem_image_info.handleTypes =
+	/* -------------------------------------------------------- */
+	/* create texture                                           */
+
+	VkExternalMemoryImageCreateInfoKHR emici;
+	emici.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO_KHR;
+	emici.pNext = NULL;
+	emici.handleTypes =
 		VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_KMT_BIT;
 
-	VkImageCreateInfo create_info;
-	create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-	create_info.pNext = &external_mem_image_info;
-	create_info.flags = 0;
-	create_info.imageType = VK_IMAGE_TYPE_2D;
-	create_info.format = swap->format;
-	create_info.extent.width = swap->image_extent.width;
-	create_info.extent.height = swap->image_extent.height;
-	create_info.extent.depth = 1;
-	create_info.mipLevels = 1;
-	create_info.arrayLayers = 1;
-	create_info.samples = VK_SAMPLE_COUNT_1_BIT;
-	create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-	create_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-			    VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-	create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	create_info.queueFamilyIndexCount = 0;
-	create_info.pQueueFamilyIndices = 0;
-	create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	VkImageCreateInfo ici;
+	ici.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	ici.pNext = &emici;
+	ici.flags = 0;
+	ici.imageType = VK_IMAGE_TYPE_2D;
+	ici.format = swap->format;
+	ici.extent.width = swap->image_extent.width;
+	ici.extent.height = swap->image_extent.height;
+	ici.extent.depth = 1;
+	ici.mipLevels = 1;
+	ici.arrayLayers = 1;
+	ici.samples = VK_SAMPLE_COUNT_1_BIT;
+	ici.tiling = VK_IMAGE_TILING_OPTIMAL;
+	ici.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+		    VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+	ici.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	ici.queueFamilyIndexCount = 0;
+	ici.pQueueFamilyIndices = 0;
+	ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
 	VkResult res;
-	res = table->CreateImage(data->device, &create_info, NULL,
-				 &swap->export_image);
+	res = table->CreateImage(data->device, &ici, NULL, &swap->export_image);
 	if (VK_SUCCESS != res) {
 		flog("failed to CreateImage: %s", result_to_str(res));
 		swap->export_image = NULL;
 		return false;
 	}
 
-	VkExportMemoryAllocateInfo export_info;
-	export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO;
-	export_info.pNext = NULL;
-	export_info.handleTypes =
-		VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_KMT_BIT;
+	/* -------------------------------------------------------- */
+	/* get image memory requirements                            */
 
-	VkMemoryRequirements req;
+	VkMemoryRequirements mr;
+	bool use_gimr2 = f & VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT_KHR;
 
-	if (data->external_mem_props.externalMemoryFeatures &
-	    VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT_KHR) {
-		VkMemoryDedicatedRequirementsKHR dedicated_req = {0};
-		dedicated_req.sType =
-			VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS_KHR;
-		dedicated_req.pNext = NULL;
+	if (use_gimr2) {
+		VkMemoryDedicatedRequirementsKHR mdr = {0};
+		mdr.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS_KHR;
+		mdr.pNext = NULL;
 
-		VkMemoryRequirements2KHR mem_req2 = {0};
-		mem_req2.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2_KHR;
-		mem_req2.pNext = &dedicated_req;
+		VkMemoryRequirements2KHR mr2 = {0};
+		mr2.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2_KHR;
+		mr2.pNext = &mdr;
 
-		VkImageMemoryRequirementsInfo2KHR img_req_info2 = {0};
-		img_req_info2.sType =
+		VkImageMemoryRequirementsInfo2KHR imri2 = {0};
+		imri2.sType =
 			VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2_KHR;
-		img_req_info2.pNext = NULL;
-		img_req_info2.image = swap->export_image;
+		imri2.pNext = NULL;
+		imri2.image = swap->export_image;
 
-		table->GetImageMemoryRequirements2KHR(
-			data->device, &img_req_info2, &mem_req2);
-		req = mem_req2.memoryRequirements;
+		table->GetImageMemoryRequirements2KHR(data->device, &imri2,
+						      &mr2);
+		mr = mr2.memoryRequirements;
 	} else {
 		table->GetImageMemoryRequirements(data->device,
-						  swap->export_image, &req);
+						  swap->export_image, &mr);
 	}
+
+	/* -------------------------------------------------------- */
+	/* get memory type index                                    */
+
+	VkLayerInstanceDispatchTable *inst_table =
+		get_inst_table(TOKEY(data->phy_device));
+
+	VkPhysicalDeviceMemoryProperties pdmp;
+	inst_table->GetPhysicalDeviceMemoryProperties(data->phy_device, &pdmp);
 
 	uint32_t mem_type_idx = 0;
 
-	VkLayerInstanceDispatchTable *inst_dispatch =
-		get_inst_table(TOKEY(data->phy_device));
-
-	VkPhysicalDeviceMemoryProperties mem_props;
-	inst_dispatch->GetPhysicalDeviceMemoryProperties(data->phy_device,
-							 &mem_props);
-
-	for (; mem_type_idx < mem_props.memoryTypeCount; mem_type_idx++) {
-		if ((req.memoryTypeBits & (1 << mem_type_idx)) &&
-		    (mem_props.memoryTypes[mem_type_idx].propertyFlags &
+	for (; mem_type_idx < pdmp.memoryTypeCount; mem_type_idx++) {
+		if ((mr.memoryTypeBits & (1 << mem_type_idx)) &&
+		    (pdmp.memoryTypes[mem_type_idx].propertyFlags &
 		     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) ==
 			    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
 			break;
 		}
 	}
 
-	VkImportMemoryWin32HandleInfoKHR import_info;
-	import_info.sType =
-		VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR;
-	import_info.pNext = NULL;
-	import_info.name = NULL;
-	import_info.handleType =
+	/* -------------------------------------------------------- */
+	/* allocate memory                                          */
+
+	VkImportMemoryWin32HandleInfoKHR imw32hi;
+	imw32hi.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR;
+	imw32hi.pNext = NULL;
+	imw32hi.name = NULL;
+	imw32hi.handleType =
 		VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_KMT_BIT;
-	import_info.handle = swap->handle;
+	imw32hi.handle = swap->handle;
 
-	VkMemoryAllocateInfo mem_info;
-	mem_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-	mem_info.pNext = &import_info;
-	mem_info.allocationSize = req.size;
-	mem_info.memoryTypeIndex = mem_type_idx;
+	VkMemoryAllocateInfo mai;
+	mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	mai.pNext = &imw32hi;
+	mai.allocationSize = mr.size;
+	mai.memoryTypeIndex = mem_type_idx;
 
-	VkMemoryDedicatedAllocateInfoKHR alloc_info;
-	alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
-	alloc_info.pNext = NULL;
-	alloc_info.buffer = VK_NULL_HANDLE;
+	VkMemoryDedicatedAllocateInfoKHR mdai;
+	mdai.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
+	mdai.pNext = NULL;
+	mdai.buffer = VK_NULL_HANDLE;
 
 	if (data->external_mem_props.externalMemoryFeatures &
 	    VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT_KHR) {
-		alloc_info.image = swap->export_image;
-		import_info.pNext = &alloc_info;
+		mdai.image = swap->export_image;
+		imw32hi.pNext = &mdai;
 	}
 
-	res = table->AllocateMemory(data->device, &mem_info, NULL,
+	res = table->AllocateMemory(data->device, &mai, NULL,
 				    &swap->export_mem);
 	if (VK_SUCCESS != res) {
 		flog("failed to AllocateMemory: %s", result_to_str(res));
@@ -565,18 +568,18 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 		return false;
 	}
 
-	VkExternalMemoryFeatureFlags f =
-		data->external_mem_props.externalMemoryFeatures;
-	bool use_bi2 =
-		(f & VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT_KHR) != 0;
+	/* -------------------------------------------------------- */
+	/* bind image memory                                        */
+
+	bool use_bi2 = f & VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT_KHR;
 
 	if (use_bi2) {
-		VkBindImageMemoryInfoKHR bind_info = {0};
-		bind_info.sType = VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_INFO;
-		bind_info.image = swap->export_image;
-		bind_info.memory = swap->export_mem;
-		bind_info.memoryOffset = 0;
-		res = table->BindImageMemory2KHR(data->device, 1, &bind_info);
+		VkBindImageMemoryInfoKHR bimi = {0};
+		bimi.sType = VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_INFO;
+		bimi.image = swap->export_image;
+		bimi.memory = swap->export_mem;
+		bimi.memoryOffset = 0;
+		res = table->BindImageMemory2KHR(data->device, 1, &bimi);
 	} else {
 		res = table->BindImageMemory(data->device, swap->export_image,
 					     swap->export_mem, 0);
