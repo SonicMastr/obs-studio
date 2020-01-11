@@ -110,42 +110,50 @@ static struct swap_data *get_new_swap_data(struct vk_data *data)
 
 /* ------------------------------------------------------------------------- */
 
-/* devices storage: devices/device_table share the same index maintain those on
- * the leading device_count elements */
-struct vk_data device_table[OBJ_MAX];
-static void *devices[OBJ_MAX];
-static uint8_t device_count;
-
-static inline uint8_t get_device_idx(VkDevice *dev)
+static inline size_t find_obj_idx(void *objs[], void *obj)
 {
-	for (uint8_t i = 0; i < device_count; i++) {
-		if (devices[i] == dev) {
+	EnterCriticalSection(&mutex);
+	for (size_t i = 0; i < OBJ_MAX; i++) {
+		if (objs[i] == obj) {
 			return i;
 		}
 	}
-	return UINT8_MAX;
-};
+	LeaveCriticalSection(&mutex);
+	return SIZE_MAX;
+}
 
-static struct vk_data *get_device_data(void *dev)
+static size_t get_obj_idx(void *objs[], void *obj)
 {
+	size_t idx = SIZE_MAX;
+
 	EnterCriticalSection(&mutex);
+	for (size_t i = 0; i < OBJ_MAX; i++) {
+		if (objs[i] == obj) {
+			idx = i;
+			break;
+		}
+		if (!objs[i] && idx == SIZE_MAX) {
+			idx = i;
+		}
+	}
+	LeaveCriticalSection(&mutex);
+	return idx;
+}
 
-	struct vk_data *data = NULL;
-	uint8_t idx = get_device_idx(dev);
+/* ------------------------------------------------------------------------- */
 
-	if (idx < device_count) {
-		data = &device_table[idx];
-	} else if (device_count >= OBJ_MAX - 1) {
+static struct vk_data device_data[OBJ_MAX] = {0};
+static void *devices[OBJ_MAX] = {0};
+
+static inline struct vk_data *get_device_data(void *dev)
+{
+	size_t idx = get_obj_idx(devices, dev);
+	if (idx == SIZE_MAX) {
 		debug("out of device slots");
-	} else {
-		struct vk_data *new_device_data = &device_table[device_count];
-		devices[device_count] = dev;
-		device_count++;
-		data = new_device_data;
+		return NULL;
 	}
 
-	LeaveCriticalSection(&mutex);
-	return data;
+	return &device_data[idx];
 }
 
 static inline VkLayerDispatchTable *get_table(void *dev)
@@ -156,9 +164,12 @@ static inline VkLayerDispatchTable *get_table(void *dev)
 
 static void vk_remove_device(void *dev)
 {
-	EnterCriticalSection(&mutex);
-	uint8_t idx = get_device_idx(dev);
-	struct vk_data *data = (struct vk_data *)(&devices[idx]);
+	size_t idx = find_obj_idx(devices, dev);
+	if (idx == SIZE_MAX) {
+		return;
+	}
+
+	struct vk_data *data = &device_data[idx];
 
 	for (int i = 0; i < OBJ_MAX; i++) {
 		struct swap_data *swap = &data->swaps[i];
@@ -188,15 +199,10 @@ static void vk_remove_device(void *dev)
 	if (data->dxgi_swap)
 		IDXGISwapChain_Release(data->dxgi_swap);
 
-	if (idx > 0 && idx < device_count - 1) {
-		devices[idx] = devices[device_count - 1];
-		memcpy(&device_table[idx], &device_table[device_count - 1],
-		       sizeof(struct vk_data));
-	}
+	memset(data, 0, sizeof(*data));
 
-	devices[device_count - 1] = NULL;
-	memset(&device_table[device_count - 1], 0, sizeof(struct vk_data));
-	device_count--;
+	EnterCriticalSection(&mutex);
+	devices[idx] = NULL;
 	LeaveCriticalSection(&mutex);
 }
 
@@ -239,63 +245,39 @@ static struct vk_surf_data *find_surf_data(struct vk_inst_data *inst_data,
 
 /* ------------------------------------------------------------------------- */
 
-/* instances level disptach table storage: inst_keys/inst_table share the same
- * index maintain those on the leading inst_count elements */
-static struct vk_inst_data inst_table[OBJ_MAX];
-static void *inst_keys[OBJ_MAX];
-static uint8_t inst_count;
-
-static inline uint8_t get_inst_idx(void *inst)
-{
-	for (uint8_t i = 0; i < inst_count; i++) {
-		if (inst_keys[i] == inst) {
-			return i;
-		}
-	}
-	return UINT8_MAX;
-};
+static struct vk_inst_data inst_data[OBJ_MAX] = {0};
+static void *instances[OBJ_MAX] = {0};
 
 static struct vk_inst_data *get_inst_data(void *inst)
 {
-	EnterCriticalSection(&mutex);
-
-	struct vk_inst_data *inst_data = NULL;
-	uint8_t idx = get_inst_idx(inst);
-	if (idx < inst_count) {
-		inst_data = &inst_table[idx];
-	} else if (inst_count >= OBJ_MAX - 1) {
+	size_t idx = get_obj_idx(instances, inst);
+	if (idx == SIZE_MAX) {
 		debug("out of instance slots");
-	} else {
-		struct vk_inst_data *newInstanceData = &inst_table[inst_count];
-		inst_keys[inst_count] = inst;
-		inst_count++;
-		inst_data = newInstanceData;
-		vulkan_seen = true;
+		return NULL;
 	}
-	LeaveCriticalSection(&mutex);
-	return inst_data;
+
+	vulkan_seen = true;
+	return &inst_data[idx];
 }
 
 static inline VkLayerInstanceDispatchTable *get_inst_table(void *inst)
 {
-	struct vk_inst_data *inst_data = get_inst_data(inst);
-	return &inst_data->table;
+	struct vk_inst_data *data = get_inst_data(inst);
+	return &data->table;
 }
 
 static void remove_instance(void *inst)
 {
-	EnterCriticalSection(&mutex);
-	uint8_t idx = get_inst_idx(inst);
-
-	if (idx > 0 && idx < inst_count - 1) {
-		inst_keys[idx] = inst_keys[inst_count - 1];
-		memcpy(&inst_table[idx], &inst_table[inst_count - 1],
-		       sizeof(struct vk_inst_data));
+	size_t idx = find_obj_idx(instances, inst);
+	if (idx == SIZE_MAX) {
+		return;
 	}
 
-	inst_keys[inst_count - 1] = NULL;
-	memset(&inst_table[inst_count - 1], 0, sizeof(struct vk_inst_data));
-	inst_count--;
+	struct vk_inst_data *data = &inst_data[idx];
+	memset(data, 0, sizeof(*data));
+
+	EnterCriticalSection(&mutex);
+	instances[idx] = NULL;
 	LeaveCriticalSection(&mutex);
 }
 
@@ -783,6 +765,20 @@ static void vk_shtex_capture(struct vk_data *data, VkLayerDispatchTable *table,
 	debug_res("QueueSubmit", res);
 }
 
+static inline HWND get_swap_window(struct swap_data *swap)
+{
+	for (size_t i = 0; i < OBJ_MAX; i++) {
+		struct vk_surf_data *surf_data =
+			find_surf_data(&inst_data[i], swap->surf);
+
+		if (!!surf_data && surf_data->surf == swap->surf) {
+			return surf_data->hwnd;
+		}
+	}
+
+	return NULL;
+}
+
 static VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
 					  const VkPresentInfoKHR *info)
 {
@@ -796,22 +792,11 @@ static VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
 	for (uint32_t i = 0; i < info->swapchainCount; i++) {
 		struct swap_data *swap =
 			get_swap_data(data, info->pSwapchains[i]);
-		if (hooked) {
-			HWND window = NULL;
-			for (int inst = 0; inst < inst_count; inst++) {
-				struct vk_surf_data *surf_data = find_surf_data(
-					&inst_table[inst], swap->surf);
-				if (surf_data != NULL &&
-				    surf_data->surf == swap->surf) {
-					window = surf_data->hwnd;
-				}
-			}
+		HWND window = get_swap_window(swap);
 
-			if (window != NULL && !swap->captured) {
-				vh_shtex_init(data, window, swap);
-			}
+		if (!!window && !swap->captured) {
+			vh_shtex_init(data, window, swap);
 		}
-
 		if (swap->captured) {
 			vk_shtex_capture(data, table, swap, i, info);
 		}
@@ -1563,15 +1548,6 @@ bool init_vk_layer()
 {
 	if (!vulkan_initialized) {
 		InitializeCriticalSection(&mutex);
-
-		inst_count = 0;
-		memset(&inst_table, 0, sizeof(inst_table));
-		memset(&inst_keys, 0, sizeof(inst_keys));
-
-		device_count = 0;
-		memset(&device_table, 0, sizeof(device_table));
-		memset(&devices, 0, sizeof(devices));
-
 		vulkan_initialized = true;
 	}
 	return true;
