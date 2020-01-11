@@ -32,7 +32,7 @@
 
 #define OBJ_MAX 16
 
-/* use the loader's dispatch table pointer as a key for dispatch map lookups */
+/* use the loader's dispatch table pointer as a key for internal data maps */
 #define GET_LDT(x) (*(void **)x)
 
 #define DUMMY_WINDOW_CLASS_NAME L"graphics_hook_vk_dummy_window"
