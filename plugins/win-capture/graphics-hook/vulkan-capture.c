@@ -17,16 +17,19 @@
 #include <vulkan/vulkan_win32.h>
 #include <../Source/layers/vk_layer_dispatch_table.h>
 
-/* shorten stuff because dear GOD is vulkan unclean. */
-#define VKAPI VKAPI_CALL
-#define VkFunc PFN_vkVoidFunction
-#define EXPORT VK_LAYER_EXPORT
-
 #define COBJMACROS
 #include <dxgi.h>
 #include <d3d11.h>
 
 #include "vulkan-capture.h"
+
+/* ======================================================================== */
+/* defs/statics                                                                  */
+
+/* shorten stuff because dear GOD is vulkan unclean. */
+#define VKAPI VKAPI_CALL
+#define VkFunc PFN_vkVoidFunction
+#define EXPORT VK_LAYER_EXPORT
 
 #define MAX_INSTANCE_COUNT 16
 #define MAX_SURFACE_PER_INSTANCE 16
@@ -36,12 +39,24 @@
 #define MAX_PHYSICALDEVICE_COUNT 16
 #define MAX_IMAGES_PER_SWAPCHAIN 16
 
+/* use the loader's dispatch table pointer as a key for dispatch map lookups */
+#define TOKEY(x) (*(void **)x)
+
+#define DUMMY_WINDOW_CLASS_NAME L"graphics_hook_vk_dummy_window"
+
+/* clang-format off */
+static const GUID dxgi_factory1_guid =
+{0x770aae78, 0xf26f, 0x4dba, {0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87}};
+static const GUID dxgi_resource_guid =
+{0x035f3ab4, 0x482e, 0x4e50, {0xb4, 0x1f, 0x8a, 0x7f, 0x8b, 0xd8, 0x96, 0x0b}};
+/* clang-format on */
+
 static bool initialized = false;
 static bool hooked = false;
 static CRITICAL_SECTION mutex;
 
-/* use the loader's dispatch table pointer as a key for dispatch map lookups */
-#define TOKEY(x) (*(void **)x)
+/* ======================================================================== */
+/* hook data                                                                */
 
 struct swap_data {
 	VkSwapchainKHR sc;
@@ -285,14 +300,35 @@ static void remove_instance(void *inst)
 	LeaveCriticalSection(&mutex);
 }
 
-#define DUMMY_WINDOW_CLASS_NAME L"graphics_hook_vk_dummy_window"
+bool init_vk_layer()
+{
+	if (!initialized) {
+		InitializeCriticalSection(&mutex);
 
-/* clang-format off */
-static const GUID dxgi_factory1_guid =
-{0x770aae78, 0xf26f, 0x4dba, {0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87}};
-static const GUID dxgi_resource_guid =
-{0x035f3ab4, 0x482e, 0x4e50, {0xb4, 0x1f, 0x8a, 0x7f, 0x8b, 0xd8, 0x96, 0x0b}};
-/* clang-format on */
+		inst_count = 0;
+		memset(&inst_table, 0, sizeof(inst_table));
+		memset(&inst_keys, 0, sizeof(inst_keys));
+
+		device_count = 0;
+		memset(&device_table, 0, sizeof(device_table));
+		memset(&devices, 0, sizeof(devices));
+
+		initialized = true;
+	}
+	return true;
+}
+
+bool shutdown_vk_layer()
+{
+	if (initialized) {
+		DeleteCriticalSection(&mutex);
+		initialized = false;
+	}
+	return true;
+}
+
+/* ======================================================================== */
+/* capture                                                                  */
 
 static inline bool vk_shtex_init_window(struct vk_data *data)
 {
@@ -307,15 +343,6 @@ static inline bool vk_shtex_init_window(struct vk_data *data)
 
 	return true;
 }
-
-typedef HRESULT(WINAPI *create_dxgi_factory1_t)(REFIID, void **);
-
-static const D3D_FEATURE_LEVEL feature_levels[] = {
-	D3D_FEATURE_LEVEL_11_0,
-	D3D_FEATURE_LEVEL_10_1,
-	D3D_FEATURE_LEVEL_10_0,
-	D3D_FEATURE_LEVEL_9_3,
-};
 
 static inline bool vk_shtex_init_d3d11(struct vk_data *data)
 {
@@ -346,8 +373,8 @@ static inline bool vk_shtex_init_d3d11(struct vk_data *data)
 	desc.Windowed = true;
 	desc.OutputWindow = data->dummy_hwnd;
 
-	create_dxgi_factory1_t create_factory =
-		(void *)GetProcAddress(dxgi, "CreateDXGIFactory1");
+	HRESULT(WINAPI * create_factory)
+	(REFIID, void **) = (void *)GetProcAddress(dxgi, "CreateDXGIFactory1");
 	if (!create_factory) {
 		flog("failed to get CreateDXGIFactory1 address: %d",
 		     GetLastError());
@@ -376,6 +403,13 @@ static inline bool vk_shtex_init_d3d11(struct vk_data *data)
 		flog_hr("failed to create adapter", hr);
 		return false;
 	}
+
+	static const D3D_FEATURE_LEVEL feature_levels[] = {
+		D3D_FEATURE_LEVEL_11_0,
+		D3D_FEATURE_LEVEL_10_1,
+		D3D_FEATURE_LEVEL_10_0,
+		D3D_FEATURE_LEVEL_9_3,
+	};
 
 	hr = create(adapter, D3D_DRIVER_TYPE_UNKNOWN, NULL, 0, feature_levels,
 		    sizeof(feature_levels) / sizeof(D3D_FEATURE_LEVEL),
@@ -594,32 +628,202 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 	return true;
 }
 
-bool init_vk_layer()
+static void vh_shtex_init(struct vk_data *data, HWND window,
+			  struct swap_data *swap)
 {
-	if (!initialized) {
-		InitializeCriticalSection(&mutex);
-
-		inst_count = 0;
-		memset(&inst_table, 0, sizeof(inst_table));
-		memset(&inst_keys, 0, sizeof(inst_keys));
-
-		device_count = 0;
-		memset(&device_table, 0, sizeof(device_table));
-		memset(&devices, 0, sizeof(devices));
-
-		initialized = true;
+	if (!vk_shtex_init_window(data)) {
+		return;
 	}
-	return true;
+	if (!vk_shtex_init_d3d11(data)) {
+		return;
+	}
+	if (!vk_shtex_init_d3d11_tex(data, swap)) {
+		return;
+	}
+	if (!vk_shtex_init_vulkan_tex(data, swap)) {
+		return;
+	}
+
+	swap->captured = capture_init_shtex(
+		&swap->shtex_info, window, swap->image_extent.width,
+		swap->image_extent.height, swap->image_extent.width,
+		swap->image_extent.height, (uint32_t)swap->format, false,
+		(uintptr_t)swap->handle);
 }
 
-bool shutdown_vk_layer()
+static void vk_shtex_capture(struct vk_data *data, VkLayerDispatchTable *table,
+			     struct swap_data *swap, uint32_t idx,
+			     const VkPresentInfoKHR *info)
 {
-	if (initialized) {
-		DeleteCriticalSection(&mutex);
-		initialized = false;
-	}
-	return true;
+	VkResult res = VK_SUCCESS;
+
+	VkCommandBufferBeginInfo begin_info;
+	begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	begin_info.pNext = NULL;
+	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	begin_info.pInheritanceInfo = NULL;
+
+	/* ------------------------------------------------------ */
+	/* do image copy                                          */
+
+	res = table->BeginCommandBuffer(data->cmd_buffer, &begin_info);
+	debug_res("BeginCommandBuffer", res);
+
+	VkImage cur_backbuffer = swap->swap_images[info->pImageIndices[idx]];
+
+	/* ------------------------------------------------------ */
+	/* transition cur_backbuffer to transfer source state     */
+
+	VkImageMemoryBarrier src_mb;
+	src_mb.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	src_mb.pNext = NULL;
+	src_mb.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	src_mb.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	src_mb.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	src_mb.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	src_mb.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	src_mb.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	src_mb.image = cur_backbuffer;
+	src_mb.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	src_mb.subresourceRange.baseMipLevel = 0;
+	src_mb.subresourceRange.levelCount = 1;
+	src_mb.subresourceRange.baseArrayLayer = 0;
+	src_mb.subresourceRange.layerCount = 1;
+
+	VkPipelineStageFlags src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
+	VkPipelineStageFlags dst_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
+
+	table->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
+				  0, NULL, 0, NULL, 1, &src_mb);
+
+	/* ------------------------------------------------------ */
+	/* transition exportedTexture to transfer dest state      */
+
+	VkImageMemoryBarrier dst_mb;
+	dst_mb.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	dst_mb.pNext = NULL;
+	dst_mb.srcAccessMask = 0;
+	dst_mb.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	dst_mb.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	dst_mb.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	dst_mb.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	dst_mb.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	dst_mb.image = swap->export_image;
+	dst_mb.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	dst_mb.subresourceRange.baseMipLevel = 0;
+	dst_mb.subresourceRange.levelCount = 1;
+	dst_mb.subresourceRange.baseArrayLayer = 0;
+	dst_mb.subresourceRange.layerCount = 1;
+
+	table->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
+				  0, NULL, 0, NULL, 1, &dst_mb);
+
+	/* ------------------------------------------------------ */
+	/* copy cur_backbuffer's content to our interop image     */
+
+	VkImageCopy cpy;
+	cpy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	cpy.srcSubresource.mipLevel = 0;
+	cpy.srcSubresource.baseArrayLayer = 0;
+	cpy.srcSubresource.layerCount = 1;
+	cpy.srcOffset.x = 0;
+	cpy.srcOffset.y = 0;
+	cpy.srcOffset.z = 0;
+	cpy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	cpy.dstSubresource.mipLevel = 0;
+	cpy.dstSubresource.baseArrayLayer = 0;
+	cpy.dstSubresource.layerCount = 1;
+	cpy.dstOffset.x = 0;
+	cpy.dstOffset.y = 0;
+	cpy.dstOffset.z = 0;
+	cpy.extent.width = swap->image_extent.width;
+	cpy.extent.height = swap->image_extent.height;
+	cpy.extent.depth = 1;
+	table->CmdCopyImage(data->cmd_buffer, cur_backbuffer,
+			    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			    swap->export_image,
+			    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cpy);
+
+	/* ------------------------------------------------------ */
+	/* Restore the swap chain image layout to what it was 
+	 * before.  This may not be strictly needed, but it is
+	 * generally good to restore things to their original
+	 * state.  */
+
+	src_mb.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	src_mb.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	src_mb.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	src_mb.dstAccessMask = 0;
+	table->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
+				  0, NULL, 0, NULL, 1, &src_mb);
+
+	dst_mb.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	dst_mb.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	dst_mb.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	dst_mb.dstAccessMask = 0;
+	table->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
+				  0, NULL, 0, NULL, 1, &dst_mb);
+
+	table->EndCommandBuffer(data->cmd_buffer);
+
+	/* ------------------------------------------------------ */
+
+	VkSubmitInfo submit_info;
+	submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submit_info.pNext = NULL;
+	submit_info.waitSemaphoreCount = 0;
+	submit_info.pWaitSemaphores = NULL;
+	submit_info.pWaitDstStageMask = NULL;
+	submit_info.commandBufferCount = 1;
+	submit_info.pCommandBuffers = &data->cmd_buffer;
+	submit_info.signalSemaphoreCount = 0;
+	submit_info.pSignalSemaphores = NULL;
+
+	VkFence null_fence = {VK_NULL_HANDLE};
+
+	res = table->QueueSubmit(data->queue, 1, &submit_info, null_fence);
+	debug_res("QueueSubmit", res);
 }
+
+static VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
+					  const VkPresentInfoKHR *info)
+{
+	struct vk_data *data = get_device_data(TOKEY(queue));
+	VkLayerDispatchTable *table = &data->table;
+
+	debug("QueuePresentKHR called on "
+	      "devicekey %p, swapchain count %d",
+	      table, info->swapchainCount);
+
+	for (uint32_t i = 0; i < info->swapchainCount; i++) {
+		struct swap_data *swap =
+			get_swap_data(data, info->pSwapchains[i]);
+		if (hooked) {
+			HWND window = NULL;
+			for (int inst = 0; inst < inst_count; inst++) {
+				struct vk_surf_data *surf_data = find_surf_data(
+					&inst_table[inst], swap->surf);
+				if (surf_data != NULL &&
+				    surf_data->surf == swap->surf) {
+					window = surf_data->hwnd;
+				}
+			}
+
+			if (window != NULL && !swap->captured) {
+				vh_shtex_init(data, window, swap);
+			}
+		}
+
+		if (swap->captured) {
+			vk_shtex_capture(data, table, swap, i, info);
+		}
+	}
+
+	return table->QueuePresentKHR(queue, info);
+}
+
+/* ======================================================================== */
+/* setup hooks                                                              */
 
 struct ext_info {
 	const char *name;
@@ -959,11 +1163,9 @@ static bool vk_get_usable_queue(VkPhysicalDevice phy_device,
 	table->GetPhysicalDeviceQueueFamilyProperties(phy_device, &prop_count,
 						      queue_fam_props);
 
-	bool found = false;
-
 	VkQueueFlags search = (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT);
-
 	VkDeviceQueueCreateInfo *mod_queues = NULL;
+	bool found = false;
 
 	for (uint32_t i = 0; i < info->queueCreateInfoCount; i++) {
 		uint32_t idx = info->pQueueCreateInfos[i].queueFamilyIndex;
@@ -992,7 +1194,7 @@ static bool vk_get_usable_queue(VkPhysicalDevice phy_device,
 		}
 
 		if (!found) {
-			return VK_ERROR_INITIALIZATION_FAILED;
+			return false;
 		}
 
 		uint32_t count = info->queueCreateInfoCount;
@@ -1239,192 +1441,6 @@ static void VKAPI OBS_DestroySwapchainKHR(VkDevice device, VkSwapchainKHR sc,
 
 	table->DestroySwapchainKHR(device, sc, ac);
 }
-
-/* ======================================================================== */
-
-static void vk_capture(struct vk_data *data, VkLayerDispatchTable *table,
-		       struct swap_data *swap, uint32_t idx,
-		       const VkPresentInfoKHR *info)
-{
-	VkResult res = VK_SUCCESS;
-
-	VkCommandBufferBeginInfo begin_info;
-	begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-	begin_info.pNext = NULL;
-	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-	begin_info.pInheritanceInfo = NULL;
-
-	/* ------------------------------------------------------ */
-	/* do image copy                                          */
-
-	res = table->BeginCommandBuffer(data->cmd_buffer, &begin_info);
-	debug_res("BeginCommandBuffer", res);
-
-	VkImage cur_backbuffer = swap->swap_images[info->pImageIndices[idx]];
-
-	/* ------------------------------------------------------ */
-	/* transition cur_backbuffer to transfer source state     */
-
-	VkImageMemoryBarrier src_mb;
-	src_mb.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-	src_mb.pNext = NULL;
-	src_mb.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-	src_mb.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-	src_mb.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-	src_mb.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-	src_mb.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	src_mb.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	src_mb.image = cur_backbuffer;
-	src_mb.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	src_mb.subresourceRange.baseMipLevel = 0;
-	src_mb.subresourceRange.levelCount = 1;
-	src_mb.subresourceRange.baseArrayLayer = 0;
-	src_mb.subresourceRange.layerCount = 1;
-
-	VkPipelineStageFlags src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
-	VkPipelineStageFlags dst_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
-
-	table->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
-				  0, NULL, 0, NULL, 1, &src_mb);
-
-	/* ------------------------------------------------------ */
-	/* transition exportedTexture to transfer dest state      */
-
-	VkImageMemoryBarrier dst_mb;
-	dst_mb.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-	dst_mb.pNext = NULL;
-	dst_mb.srcAccessMask = 0;
-	dst_mb.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-	dst_mb.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	dst_mb.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	dst_mb.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	dst_mb.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	dst_mb.image = swap->export_image;
-	dst_mb.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	dst_mb.subresourceRange.baseMipLevel = 0;
-	dst_mb.subresourceRange.levelCount = 1;
-	dst_mb.subresourceRange.baseArrayLayer = 0;
-	dst_mb.subresourceRange.layerCount = 1;
-
-	table->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
-				  0, NULL, 0, NULL, 1, &dst_mb);
-
-	/* ------------------------------------------------------ */
-	/* copy cur_backbuffer's content to our interop image     */
-
-	VkImageCopy cpy;
-	cpy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	cpy.srcSubresource.mipLevel = 0;
-	cpy.srcSubresource.baseArrayLayer = 0;
-	cpy.srcSubresource.layerCount = 1;
-	cpy.srcOffset.x = 0;
-	cpy.srcOffset.y = 0;
-	cpy.srcOffset.z = 0;
-	cpy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	cpy.dstSubresource.mipLevel = 0;
-	cpy.dstSubresource.baseArrayLayer = 0;
-	cpy.dstSubresource.layerCount = 1;
-	cpy.dstOffset.x = 0;
-	cpy.dstOffset.y = 0;
-	cpy.dstOffset.z = 0;
-	cpy.extent.width = swap->image_extent.width;
-	cpy.extent.height = swap->image_extent.height;
-	cpy.extent.depth = 1;
-	table->CmdCopyImage(data->cmd_buffer, cur_backbuffer,
-			    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			    swap->export_image,
-			    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cpy);
-
-	/* ------------------------------------------------------ */
-	/* Restore the swap chain image layout to what it was 
-	 * before.  This may not be strictly needed, but it is
-	 * generally good to restore things to their original
-	 * state.  */
-
-	src_mb.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-	src_mb.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-	src_mb.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-	src_mb.dstAccessMask = 0;
-	table->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
-				  0, NULL, 0, NULL, 1, &src_mb);
-
-	dst_mb.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	dst_mb.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	dst_mb.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-	dst_mb.dstAccessMask = 0;
-	table->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
-				  0, NULL, 0, NULL, 1, &dst_mb);
-
-	table->EndCommandBuffer(data->cmd_buffer);
-
-	/* ------------------------------------------------------ */
-
-	VkSubmitInfo submit_info;
-	submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	submit_info.pNext = NULL;
-	submit_info.waitSemaphoreCount = 0;
-	submit_info.pWaitSemaphores = NULL;
-	submit_info.pWaitDstStageMask = NULL;
-	submit_info.commandBufferCount = 1;
-	submit_info.pCommandBuffers = &data->cmd_buffer;
-	submit_info.signalSemaphoreCount = 0;
-	submit_info.pSignalSemaphores = NULL;
-
-	VkFence null_fence = {VK_NULL_HANDLE};
-
-	res = table->QueueSubmit(data->queue, 1, &submit_info, null_fence);
-	debug_res("QueueSubmit", res);
-}
-
-static VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
-					  const VkPresentInfoKHR *info)
-{
-	struct vk_data *data = get_device_data(TOKEY(queue));
-	VkLayerDispatchTable *table = &data->table;
-
-	debug("QueuePresentKHR called on "
-	      "devicekey %p, swapchain count %d",
-	      table, info->swapchainCount);
-
-	for (uint32_t i = 0; i < info->swapchainCount; i++) {
-		struct swap_data *swap =
-			get_swap_data(data, info->pSwapchains[i]);
-		if (hooked) {
-			HWND window = NULL;
-			for (int inst = 0; inst < inst_count; inst++) {
-				struct vk_surf_data *surf_data = find_surf_data(
-					&inst_table[inst], swap->surf);
-				if (surf_data != NULL &&
-				    surf_data->surf == swap->surf) {
-					window = surf_data->hwnd;
-				}
-			}
-
-			if (window != NULL && !swap->captured &&
-			    vk_shtex_init_window(data) &&
-			    vk_shtex_init_d3d11(data) &&
-			    vk_shtex_init_d3d11_tex(data, swap) &&
-			    vk_shtex_init_vulkan_tex(data, swap)) {
-				swap->captured = capture_init_shtex(
-					&swap->shtex_info, window,
-					swap->image_extent.width,
-					swap->image_extent.height,
-					swap->image_extent.width,
-					swap->image_extent.height,
-					(uint32_t)swap->format, false,
-					(uintptr_t)swap->handle);
-			}
-		}
-
-		if (swap->captured) {
-			vk_capture(data, table, swap, i, info);
-		}
-	}
-
-	return table->QueuePresentKHR(queue, info);
-}
-
-/* ======================================================================== */
 
 static VkResult VKAPI OBS_GetSwapchainImagesKHR(VkDevice device,
 						VkSwapchainKHR sc,
