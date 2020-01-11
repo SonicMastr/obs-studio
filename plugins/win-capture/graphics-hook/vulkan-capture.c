@@ -31,13 +31,7 @@
 #define VkFunc PFN_vkVoidFunction
 #define EXPORT VK_LAYER_EXPORT
 
-#define MAX_INSTANCE_COUNT 16
-#define MAX_SURFACE_PER_INSTANCE 16
-#define MAX_DEVICE_COUNT 16
-#define MAX_QUEUES 16
-#define MAX_SWAPCHAIN_PER_DEVICE 16
-#define MAX_PHYSICALDEVICE_COUNT 16
-#define MAX_IMAGES_PER_SWAPCHAIN 16
+#define OBJ_MAX 16
 
 /* use the loader's dispatch table pointer as a key for dispatch map lookups */
 #define TOKEY(x) (*(void **)x)
@@ -65,7 +59,7 @@ struct swap_data {
 	VkSurfaceKHR surf;
 	VkImage export_image;
 	VkDeviceMemory export_mem;
-	VkImage swap_images[MAX_IMAGES_PER_SWAPCHAIN];
+	VkImage swap_images[OBJ_MAX];
 
 	HANDLE handle;
 	struct shtex_data *shtex_info;
@@ -77,7 +71,7 @@ struct vk_data {
 	VkLayerDispatchTable table;
 	VkPhysicalDevice phy_device;
 	VkDevice device;
-	struct swap_data swaps[MAX_SWAPCHAIN_PER_DEVICE];
+	struct swap_data swaps[OBJ_MAX];
 
 	uint32_t queue_fam_idx;
 	VkCommandPool cmd_pool;
@@ -93,7 +87,7 @@ struct vk_data {
 
 static struct swap_data *get_swap_data(struct vk_data *data, VkSwapchainKHR sc)
 {
-	for (int i = 0; i < MAX_SWAPCHAIN_PER_DEVICE; i++) {
+	for (int i = 0; i < OBJ_MAX; i++) {
 		if (data->swaps[i].sc == sc) {
 			return &data->swaps[i];
 		}
@@ -105,7 +99,7 @@ static struct swap_data *get_swap_data(struct vk_data *data, VkSwapchainKHR sc)
 
 static struct swap_data *get_new_swap_data(struct vk_data *data)
 {
-	for (int i = 0; i < MAX_SWAPCHAIN_PER_DEVICE; i++) {
+	for (int i = 0; i < OBJ_MAX; i++) {
 		if (data->swaps[i].surf == NULL && data->swaps[i].sc == NULL) {
 			return &data->swaps[i];
 		}
@@ -119,8 +113,8 @@ static struct swap_data *get_new_swap_data(struct vk_data *data)
 
 /* devices storage: devices/device_table share the same index maintain those on
  * the leading device_count elements */
-struct vk_data device_table[MAX_DEVICE_COUNT];
-static void *devices[MAX_DEVICE_COUNT];
+struct vk_data device_table[OBJ_MAX];
+static void *devices[OBJ_MAX];
 static uint8_t device_count;
 
 static inline uint8_t get_device_idx(VkDevice *dev)
@@ -142,7 +136,7 @@ static struct vk_data *get_device_data(void *dev)
 
 	if (idx < device_count) {
 		data = &device_table[idx];
-	} else if (device_count >= MAX_DEVICE_COUNT - 1) {
+	} else if (device_count >= OBJ_MAX - 1) {
 		debug("out of device slots");
 	} else {
 		struct vk_data *new_device_data = &device_table[device_count];
@@ -167,7 +161,7 @@ static void vk_remove_device(void *dev)
 	uint8_t idx = get_device_idx(dev);
 	struct vk_data *data = (struct vk_data *)(&devices[idx]);
 
-	for (int i = 0; i < MAX_SWAPCHAIN_PER_DEVICE; i++) {
+	for (int i = 0; i < OBJ_MAX; i++) {
 		struct swap_data *swap = &data->swaps[i];
 
 		if (swap->export_image)
@@ -218,24 +212,24 @@ struct vk_surf_data {
 struct vk_inst_data {
 	VkLayerInstanceDispatchTable table;
 	uint32_t phy_device_count;
-	VkPhysicalDevice *phy_devices[MAX_PHYSICALDEVICE_COUNT];
+	VkPhysicalDevice *phy_devices[OBJ_MAX];
 
-	struct vk_surf_data surfaces[MAX_SURFACE_PER_INSTANCE];
+	struct vk_surf_data surfaces[OBJ_MAX];
 };
 
 static struct vk_surf_data *find_surf_data(struct vk_inst_data *inst_data,
 					   VkSurfaceKHR surf)
 {
-	int idx = MAX_SURFACE_PER_INSTANCE;
-	for (int i = 0; i < MAX_SURFACE_PER_INSTANCE; i++) {
+	int idx = OBJ_MAX;
+	for (int i = 0; i < OBJ_MAX; i++) {
 		if (inst_data->surfaces[i].surf == surf) {
 			return &inst_data->surfaces[i];
 		} else if (inst_data->surfaces[i].surf == NULL &&
-			   idx == MAX_SWAPCHAIN_PER_DEVICE) {
+			   idx == OBJ_MAX) {
 			idx = i;
 		}
 	}
-	if (idx != MAX_SWAPCHAIN_PER_DEVICE) {
+	if (idx != OBJ_MAX) {
 		inst_data->surfaces[idx].surf = surf;
 		return &inst_data->surfaces[idx];
 	}
@@ -248,8 +242,8 @@ static struct vk_surf_data *find_surf_data(struct vk_inst_data *inst_data,
 
 /* instances level disptach table storage: inst_keys/inst_table share the same
  * index maintain those on the leading inst_count elements */
-static struct vk_inst_data inst_table[MAX_INSTANCE_COUNT];
-static void *inst_keys[MAX_INSTANCE_COUNT];
+static struct vk_inst_data inst_table[OBJ_MAX];
+static void *inst_keys[OBJ_MAX];
 static uint8_t inst_count;
 
 static inline uint8_t get_inst_idx(void *inst)
@@ -270,7 +264,7 @@ static struct vk_inst_data *get_inst_data(void *inst)
 	uint8_t idx = get_inst_idx(inst);
 	if (idx < inst_count) {
 		inst_data = &inst_table[idx];
-	} else if (inst_count >= MAX_INSTANCE_COUNT - 1) {
+	} else if (inst_count >= OBJ_MAX - 1) {
 		debug("out of instance slots");
 	} else {
 		struct vk_inst_data *newInstanceData = &inst_table[inst_count];
@@ -1044,8 +1038,8 @@ static VkResult VKAPI OBS_EnumeratePhysicalDevices(
 	uint32_t count = *p_count;
 
 	if (res == VK_SUCCESS) {
-		if (count > MAX_PHYSICALDEVICE_COUNT) {
-			count = MAX_PHYSICALDEVICE_COUNT;
+		if (count > OBJ_MAX) {
+			count = OBJ_MAX;
 			debug("out of physical device storage for "
 			      "instance %p, clamping to %d",
 			      inst, count);
@@ -1160,12 +1154,12 @@ static bool vk_get_usable_queue(VkPhysicalDevice phy_device,
 {
 	uint32_t fam_idx = 0;
 	uint32_t prop_count = 0;
-	VkQueueFamilyProperties queue_fam_props[MAX_QUEUES];
+	VkQueueFamilyProperties queue_fam_props[OBJ_MAX];
 
 	table->GetPhysicalDeviceQueueFamilyProperties(phy_device, &prop_count,
 						      NULL);
-	if (prop_count > MAX_QUEUES)
-		prop_count = MAX_QUEUES;
+	if (prop_count > OBJ_MAX)
+		prop_count = OBJ_MAX;
 
 	table->GetPhysicalDeviceQueueFamilyProperties(phy_device, &prop_count,
 						      queue_fam_props);
@@ -1412,8 +1406,8 @@ OBS_CreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *info,
 	debug_res("GetSwapchainImagesKHR", res);
 
 	if (count > 0) {
-		if (count > MAX_IMAGES_PER_SWAPCHAIN)
-			count = MAX_IMAGES_PER_SWAPCHAIN;
+		if (count > OBJ_MAX)
+			count = OBJ_MAX;
 
 		res = table->GetSwapchainImagesKHR(data->device, sc, &count,
 						   swap->swap_images);
