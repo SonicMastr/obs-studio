@@ -927,11 +927,11 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 	return res;
 }
 
-EXPORT VkResult VKAPI
-OBS_DestroyInstance(VkInstance instance, const VkAllocationCallbacks *allocator)
+EXPORT VkResult VKAPI OBS_DestroyInstance(VkInstance instance,
+					  const VkAllocationCallbacks *ac)
 {
 	VkLayerInstanceDispatchTable *table = get_inst_table(TOKEY(instance));
-	table->DestroyInstance(instance, allocator);
+	table->DestroyInstance(instance, ac);
 	remove_instance(instance);
 	return VK_SUCCESS;
 }
