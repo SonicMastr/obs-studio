@@ -115,6 +115,8 @@ static struct swap_data *get_new_swap_data(struct vk_data *data)
 	return NULL;
 }
 
+/* ------------------------------------------------------------------------- */
+
 /* devices storage: devices/device_table share the same index maintain those on
  * the leading device_count elements */
 struct vk_data device_table[MAX_DEVICE_COUNT];
@@ -205,6 +207,8 @@ static void vk_remove_device(void *dev)
 	LeaveCriticalSection(&mutex);
 }
 
+/* ------------------------------------------------------------------------- */
+
 struct vk_surf_data {
 	VkSurfaceKHR surf;
 	HINSTANCE hinstance;
@@ -239,6 +243,8 @@ static struct vk_surf_data *find_surf_data(struct vk_inst_data *inst_data,
 	debug("find_surf_data failed, no more free slots");
 	return NULL;
 }
+
+/* ------------------------------------------------------------------------- */
 
 /* instances level disptach table storage: inst_keys/inst_table share the same
  * index maintain those on the leading inst_count elements */
@@ -298,6 +304,8 @@ static void remove_instance(void *inst)
 	inst_count--;
 	LeaveCriticalSection(&mutex);
 }
+
+/* ------------------------------------------------------------------------- */
 
 bool init_vk_layer()
 {
