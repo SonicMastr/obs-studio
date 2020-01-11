@@ -267,7 +267,6 @@ static struct vk_inst_data *get_inst_data(void *inst)
 	} else if (inst_count >= MAX_INSTANCE_COUNT - 1) {
 		debug("out of instance slots");
 	} else {
-
 		struct vk_inst_data *newInstanceData = &inst_table[inst_count];
 		inst_keys[inst_count] = inst;
 		inst_count++;
@@ -277,7 +276,7 @@ static struct vk_inst_data *get_inst_data(void *inst)
 	return inst_data;
 }
 
-static VkLayerInstanceDispatchTable *get_inst_table(void *inst)
+static inline VkLayerInstanceDispatchTable *get_inst_table(void *inst)
 {
 	struct vk_inst_data *inst_data = get_inst_data(inst);
 	return &inst_data->table;
