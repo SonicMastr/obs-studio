@@ -1459,16 +1459,6 @@ EXPORT VkFunc VKAPI OBS_GetInstanceProcAddr(VkInstance inst, const char *name)
 
 #undef GETPROCADDR
 
-static VkFunc VKAPI vk_get_phys_proc(VkInstance inst, const char *name)
-{
-	VkLayerInstanceDispatchTable *table = get_inst_table(TOKEY(inst));
-	if (table->GetPhysicalDeviceProcAddr == NULL) {
-		return NULL;
-	}
-
-	return table->GetPhysicalDeviceProcAddr(inst, name);
-}
-
 EXPORT VkResult VKAPI OBS_Negotiate(VkNegotiateLayerInterface *nli)
 {
 	if (nli->loaderLayerInterfaceVersion >= 2) {
@@ -1476,7 +1466,7 @@ EXPORT VkResult VKAPI OBS_Negotiate(VkNegotiateLayerInterface *nli)
 		nli->pNext = NULL;
 		nli->pfnGetInstanceProcAddr = OBS_GetInstanceProcAddr;
 		nli->pfnGetDeviceProcAddr = OBS_GetDeviceProcAddr;
-		nli->pfnGetPhysicalDeviceProcAddr = vk_get_phys_proc;
+		nli->pfnGetPhysicalDeviceProcAddr = NULL;
 	}
 
 	const uint32_t cur_ver = CURRENT_LOADER_LAYER_INTERFACE_VERSION;
