@@ -1322,10 +1322,15 @@ fail:
 }
 
 static void VKAPI OBS_DestroyDevice(VkDevice device,
-				    const VkAllocationCallbacks *unused)
+				    const VkAllocationCallbacks *ac)
 {
-	(void)unused;
-	vk_remove_device(&device);
+	struct vk_data *data = get_device_data(TOKEY(device));
+	if (data) {
+		vk_remove_device(TOKEY(device));
+
+		VkLayerDispatchTable *table = &data->table;
+		table->DestroyDevice(device, ac);
+	}
 }
 
 static VkResult VKAPI
