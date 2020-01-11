@@ -216,9 +216,6 @@ struct vk_surf_data {
 
 struct vk_inst_data {
 	VkLayerInstanceDispatchTable table;
-	uint32_t phy_device_count;
-	VkPhysicalDevice *phy_devices[OBJ_MAX];
-
 	struct vk_surf_data surfaces[OBJ_MAX];
 };
 
@@ -927,7 +924,6 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 	GETADDR(GetInstanceProcAddr);
 	GETADDR(DestroyInstance);
 	GETADDR(EnumerateDeviceExtensionProperties);
-	GETADDR(EnumeratePhysicalDevices);
 	GETADDR(CreateWin32SurfaceKHR);
 	GETADDR(GetPhysicalDeviceQueueFamilyProperties);
 	GETADDR(GetPhysicalDeviceMemoryProperties);
@@ -1007,35 +1003,6 @@ static VkResult VKAPI OBS_EnumerateDeviceExtensionProperties(
 	}
 
 	return VK_SUCCESS;
-}
-
-static VkResult VKAPI OBS_EnumeratePhysicalDevices(
-	VkInstance inst, uint32_t *p_count, VkPhysicalDevice *phy_devices)
-{
-	struct vk_inst_data *inst_data = get_inst_data(TOKEY(inst));
-	VkLayerInstanceDispatchTable *table = &inst_data->table;
-
-	VkResult res =
-		table->EnumeratePhysicalDevices(inst, p_count, phy_devices);
-	uint32_t count = *p_count;
-
-	if (res == VK_SUCCESS) {
-		if (count > OBJ_MAX) {
-			count = OBJ_MAX;
-			debug("out of physical device storage for "
-			      "instance %p, clamping to %d",
-			      inst, count);
-		}
-		inst_data->phy_device_count = count;
-
-		if (phy_devices != NULL) {
-			for (uint32_t i = 0; i < count; i++) {
-				inst_data->phy_devices[i] =
-					(VkPhysicalDevice *)phy_devices[i];
-			}
-		}
-	}
-	return res;
 }
 
 static bool
@@ -1425,16 +1392,6 @@ static void VKAPI OBS_DestroySwapchainKHR(VkDevice device, VkSwapchainKHR sc,
 	table->DestroySwapchainKHR(device, sc, ac);
 }
 
-static VkResult VKAPI OBS_GetSwapchainImagesKHR(VkDevice device,
-						VkSwapchainKHR sc,
-						uint32_t *count,
-						VkImage *images)
-{
-	VkLayerDispatchTable *table = get_table(TOKEY(device));
-	VkResult res = table->GetSwapchainImagesKHR(device, sc, count, images);
-	return res;
-}
-
 static VkResult VKAPI OBS_CreateWin32SurfaceKHR(
 	VkInstance inst, const VkWin32SurfaceCreateInfoKHR *info,
 	const VkAllocationCallbacks *ac, VkSurfaceKHR *surf)
@@ -1468,7 +1425,6 @@ EXPORT VkFunc VKAPI OBS_GetDeviceProcAddr(VkDevice dev, const char *name)
 	GETPROCADDR(CreateSwapchainKHR);
 	GETPROCADDR(DestroySwapchainKHR);
 	GETPROCADDR(QueuePresentKHR);
-	GETPROCADDR(GetSwapchainImagesKHR);
 
 	VkLayerDispatchTable *table = get_table(TOKEY(dev));
 	if (table->GetDeviceProcAddr == NULL)
@@ -1484,7 +1440,6 @@ EXPORT VkFunc VKAPI OBS_GetInstanceProcAddr(VkInstance inst, const char *name)
 	GETPROCADDR(GetInstanceProcAddr);
 	GETPROCADDR(EnumerateInstanceLayerProperties);
 	GETPROCADDR(EnumerateInstanceExtensionProperties);
-	GETPROCADDR(EnumeratePhysicalDevices);
 	GETPROCADDR(CreateInstance);
 	GETPROCADDR(DestroyInstance);
 	GETPROCADDR(CreateWin32SurfaceKHR);
