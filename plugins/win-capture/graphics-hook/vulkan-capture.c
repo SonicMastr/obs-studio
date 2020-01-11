@@ -884,7 +884,7 @@ static inline bool is_inst_link_info(VkLayerInstanceCreateInfo *lici)
 }
 
 EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
-					 const VkAllocationCallbacks *allocator,
+					 const VkAllocationCallbacks *ac,
 					 VkInstance *p_inst)
 {
 	VkInstanceCreateInfo info = *cinfo;
@@ -926,7 +926,7 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 
 	PFN_vkCreateInstance create = (void *)gpa(NULL, "vkCreateInstance");
 
-	VkResult res = create(&info, allocator, p_inst);
+	VkResult res = create(&info, ac, p_inst);
 	VkInstance inst = *p_inst;
 	free(a);
 
