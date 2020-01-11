@@ -66,7 +66,7 @@ struct swap_data {
 };
 
 struct vk_data {
-	VkLayerDispatchTable table;
+	struct device_funcs funcs;
 	VkPhysicalDevice phy_device;
 	VkDevice device;
 	struct swap_data swaps[OBJ_MAX];
@@ -168,11 +168,11 @@ static void vk_remove_device(void *dev)
 		struct swap_data *swap = &data->swaps[i];
 
 		if (swap->export_image)
-			data->table.DestroyImage(data->device,
+			data->funcs.DestroyImage(data->device,
 						 swap->export_image, NULL);
 
 		if (swap->export_mem)
-			data->table.FreeMemory(data->device, swap->export_mem,
+			data->funcs.FreeMemory(data->device, swap->export_mem,
 					       NULL);
 
 		swap->handle = INVALID_HANDLE_VALUE;
@@ -208,7 +208,7 @@ struct vk_surf_data {
 };
 
 struct vk_inst_data {
-	VkLayerInstanceDispatchTable table;
+	struct inst_funcs funcs;
 	struct vk_surf_data surfaces[OBJ_MAX];
 };
 
@@ -250,10 +250,10 @@ static struct vk_inst_data *get_inst_data(void *inst)
 	return &inst_data[idx];
 }
 
-static inline VkLayerInstanceDispatchTable *get_inst_table(void *inst)
+static inline struct inst_funcs *get_inst_funcs(void *inst)
 {
 	struct vk_inst_data *data = get_inst_data(inst);
-	return &data->table;
+	return &data->funcs;
 }
 
 static void remove_instance(void *inst)
@@ -445,7 +445,7 @@ static inline bool vk_shtex_init_d3d11_tex(struct vk_data *dev_data,
 static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 					    struct swap_data *swap)
 {
-	VkLayerDispatchTable *table = &data->table;
+	struct device_funcs *table = &data->funcs;
 	VkExternalMemoryFeatureFlags f =
 		data->external_mem_props.externalMemoryFeatures;
 
@@ -518,8 +518,7 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 	/* -------------------------------------------------------- */
 	/* get memory type index                                    */
 
-	VkLayerInstanceDispatchTable *inst_table =
-		get_inst_table(TOKEY(data->phy_device));
+	struct inst_funcs *inst_table = get_inst_funcs(TOKEY(data->phy_device));
 
 	VkPhysicalDeviceMemoryProperties pdmp;
 	inst_table->GetPhysicalDeviceMemoryProperties(data->phy_device, &pdmp);
@@ -621,7 +620,7 @@ static void vh_shtex_init(struct vk_data *data, HWND window,
 		(uintptr_t)swap->handle);
 }
 
-static void vk_shtex_capture(struct vk_data *data, VkLayerDispatchTable *table,
+static void vk_shtex_capture(struct vk_data *data, struct device_funcs *table,
 			     struct swap_data *swap, uint32_t idx,
 			     const VkPresentInfoKHR *info)
 {
@@ -773,7 +772,7 @@ static VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
 					  const VkPresentInfoKHR *info)
 {
 	struct vk_data *data = get_device_data(TOKEY(queue));
-	VkLayerDispatchTable *table = &data->table;
+	struct device_funcs *table = &data->funcs;
 
 	debug("QueuePresentKHR called on "
 	      "devicekey %p, swapchain count %d",
@@ -907,7 +906,7 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 	/* -------------------------------------------------------- */
 	/* fetch the functions we need                              */
 
-	VkLayerInstanceDispatchTable *table = get_inst_table(TOKEY(inst));
+	struct inst_funcs *table = get_inst_funcs(TOKEY(inst));
 
 #define GETADDR(x)                                     \
 	do {                                           \
@@ -929,7 +928,7 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 EXPORT VkResult VKAPI OBS_DestroyInstance(VkInstance instance,
 					  const VkAllocationCallbacks *ac)
 {
-	VkLayerInstanceDispatchTable *table = get_inst_table(TOKEY(instance));
+	struct inst_funcs *table = get_inst_funcs(TOKEY(instance));
 	table->DestroyInstance(instance, ac);
 	remove_instance(instance);
 	return VK_SUCCESS;
@@ -977,8 +976,7 @@ static VkResult VKAPI OBS_EnumerateDeviceExtensionProperties(
 		if (phy_device == VK_NULL_HANDLE)
 			return VK_SUCCESS;
 
-		VkLayerInstanceDispatchTable *disp =
-			get_inst_table(TOKEY(phy_device));
+		struct inst_funcs *disp = get_inst_funcs(TOKEY(phy_device));
 		return disp->EnumerateDeviceExtensionProperties(
 			phy_device, name, p_count, props);
 	}
@@ -999,9 +997,8 @@ static VkResult VKAPI OBS_EnumerateDeviceExtensionProperties(
 }
 
 static bool
-vk_shared_tex_supported(VkLayerInstanceDispatchTable *table,
-			VkPhysicalDevice phy_device, VkFormat format,
-			VkImageUsageFlags usage,
+vk_shared_tex_supported(struct inst_funcs *table, VkPhysicalDevice phy_device,
+			VkFormat format, VkImageUsageFlags usage,
 			VkExternalMemoryPropertiesKHR *external_mem_props)
 {
 	VkPhysicalDeviceImageFormatInfo2KHR info;
@@ -1044,8 +1041,7 @@ vk_shared_tex_supported(VkLayerInstanceDispatchTable *table,
 
 static bool vk_init_req_extensions(VkPhysicalDevice phy_device,
 				   VkDeviceCreateInfo *info,
-				   VkLayerInstanceDispatchTable *table,
-				   void **a)
+				   struct inst_funcs *table, void **a)
 {
 	struct ext_info req_ext[] = {
 		{.name = VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME},
@@ -1091,8 +1087,8 @@ static bool vk_init_req_extensions(VkPhysicalDevice phy_device,
 
 static bool vk_get_usable_queue(VkPhysicalDevice phy_device,
 				VkDeviceCreateInfo *info,
-				VkLayerInstanceDispatchTable *table,
-				uint32_t *p_fam_idx, void **b)
+				struct inst_funcs *table, uint32_t *p_fam_idx,
+				void **b)
 {
 	uint32_t fam_idx = 0;
 	uint32_t prop_count = 0;
@@ -1178,8 +1174,7 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 				       VkDevice *p_device)
 {
 	VkDeviceCreateInfo info = *cinfo;
-	VkLayerInstanceDispatchTable *inst_disp =
-		get_inst_table(TOKEY(phy_device));
+	struct inst_funcs *inst_disp = get_inst_funcs(TOKEY(phy_device));
 
 	uint32_t fam_idx = 0;
 	void *a = NULL, *b = NULL;
@@ -1226,7 +1221,7 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 	VkDevice device = *p_device;
 
 	struct vk_data *data = get_device_data(TOKEY(*p_device));
-	VkLayerDispatchTable *table = &data->table;
+	struct device_funcs *table = &data->funcs;
 
 	data->queue_fam_idx = fam_idx;
 	data->phy_device = phy_device;
@@ -1318,7 +1313,7 @@ static void VKAPI OBS_DestroyDevice(VkDevice device,
 	if (data) {
 		vk_remove_device(TOKEY(device));
 
-		VkLayerDispatchTable *table = &data->table;
+		struct device_funcs *table = &data->funcs;
 		table->DestroyDevice(device, ac);
 	}
 }
@@ -1328,7 +1323,7 @@ OBS_CreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *info,
 		       const VkAllocationCallbacks *ac, VkSwapchainKHR *p_sc)
 {
 	struct vk_data *data = get_device_data(TOKEY(device));
-	VkLayerDispatchTable *table = &data->table;
+	struct device_funcs *table = &data->funcs;
 
 	struct swap_data *swap = get_new_swap_data(data);
 
@@ -1360,7 +1355,7 @@ static void VKAPI OBS_DestroySwapchainKHR(VkDevice device, VkSwapchainKHR sc,
 					  const VkAllocationCallbacks *ac)
 {
 	struct vk_data *data = get_device_data(TOKEY(device));
-	VkLayerDispatchTable *table = &data->table;
+	struct device_funcs *table = &data->funcs;
 
 	struct swap_data *swap = get_swap_data(data, sc);
 	if (swap) {
@@ -1388,7 +1383,7 @@ static VkResult VKAPI OBS_CreateWin32SurfaceKHR(
 	struct vk_inst_data *inst_data = get_inst_data(TOKEY(inst));
 
 	VkResult res =
-		inst_data->table.CreateWin32SurfaceKHR(inst, info, ac, surf);
+		inst_data->funcs.CreateWin32SurfaceKHR(inst, info, ac, surf);
 	if (NULL != surf && VK_NULL_HANDLE != *surf) {
 		struct vk_surf_data *surf_data =
 			find_surf_data(inst_data, *surf);
@@ -1406,7 +1401,7 @@ static VkResult VKAPI OBS_CreateWin32SurfaceKHR(
 EXPORT VkFunc VKAPI OBS_GetDeviceProcAddr(VkDevice dev, const char *name)
 {
 	struct vk_data *data = get_device_data(dev);
-	VkLayerDispatchTable *table = &data->table;
+	struct device_funcs *table = &data->funcs;
 
 	debug_procaddr("vkGetDeviceProcAddr(%p, \"%s\")", dev, name);
 
@@ -1441,7 +1436,7 @@ EXPORT VkFunc VKAPI OBS_GetInstanceProcAddr(VkInstance inst, const char *name)
 	GETPROCADDR(CreateDevice);
 	GETPROCADDR(DestroyDevice);
 
-	VkLayerInstanceDispatchTable *table = get_inst_table(TOKEY(inst));
+	struct inst_funcs *table = get_inst_funcs(TOKEY(inst));
 	if (table->GetInstanceProcAddr == NULL)
 		return NULL;
 	return table->GetInstanceProcAddr(inst, name);

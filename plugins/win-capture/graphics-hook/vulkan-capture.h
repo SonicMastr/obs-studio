@@ -2,7 +2,7 @@
 
 #define DEF_FUNC(x) PFN_vk##x x
 
-typedef struct VkLayerInstanceDispatchTable_ {
+struct inst_funcs {
 	DEF_FUNC(GetInstanceProcAddr);
 	DEF_FUNC(DestroyInstance);
 	DEF_FUNC(EnumerateDeviceExtensionProperties);
@@ -10,9 +10,9 @@ typedef struct VkLayerInstanceDispatchTable_ {
 	DEF_FUNC(GetPhysicalDeviceQueueFamilyProperties);
 	DEF_FUNC(GetPhysicalDeviceMemoryProperties);
 	DEF_FUNC(GetPhysicalDeviceImageFormatProperties2KHR);
-} VkLayerInstanceDispatchTable;
+};
 
-typedef struct VkLayerDispatchTable_ {
+struct device_funcs {
 	DEF_FUNC(GetDeviceProcAddr);
 	DEF_FUNC(DestroyDevice);
 	DEF_FUNC(CreateSwapchainKHR);
@@ -37,7 +37,7 @@ typedef struct VkLayerDispatchTable_ {
 	DEF_FUNC(DeviceWaitIdle);
 	DEF_FUNC(CreateCommandPool);
 	DEF_FUNC(AllocateCommandBuffers);
-} VkLayerDispatchTable;
+};
 
 #undef DEF_FUNC
 
