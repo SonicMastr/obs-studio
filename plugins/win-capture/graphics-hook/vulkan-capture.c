@@ -299,35 +299,6 @@ static void remove_instance(void *inst)
 	LeaveCriticalSection(&mutex);
 }
 
-/* ------------------------------------------------------------------------- */
-
-bool init_vk_layer()
-{
-	if (!initialized) {
-		InitializeCriticalSection(&mutex);
-
-		inst_count = 0;
-		memset(&inst_table, 0, sizeof(inst_table));
-		memset(&inst_keys, 0, sizeof(inst_keys));
-
-		device_count = 0;
-		memset(&device_table, 0, sizeof(device_table));
-		memset(&devices, 0, sizeof(devices));
-
-		initialized = true;
-	}
-	return true;
-}
-
-bool shutdown_vk_layer()
-{
-	if (initialized) {
-		DeleteCriticalSection(&mutex);
-		initialized = false;
-	}
-	return true;
-}
-
 /* ======================================================================== */
 /* capture                                                                  */
 
@@ -1580,4 +1551,31 @@ bool hook_vulkan(void)
 		hooked = false;
 	}
 	return hooked;
+}
+
+bool init_vk_layer()
+{
+	if (!initialized) {
+		InitializeCriticalSection(&mutex);
+
+		inst_count = 0;
+		memset(&inst_table, 0, sizeof(inst_table));
+		memset(&inst_keys, 0, sizeof(inst_keys));
+
+		device_count = 0;
+		memset(&device_table, 0, sizeof(device_table));
+		memset(&devices, 0, sizeof(devices));
+
+		initialized = true;
+	}
+	return true;
+}
+
+bool shutdown_vk_layer()
+{
+	if (initialized) {
+		DeleteCriticalSection(&mutex);
+		initialized = false;
+	}
+	return true;
 }
