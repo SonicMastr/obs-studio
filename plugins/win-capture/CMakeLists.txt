@@ -22,6 +22,7 @@ set(win-capture_SOURCES
 	monitor-capture.c
 	window-capture.c
 	load-graphics-offsets.c
+	game-capture-vulkan-init.c
 	duplicator-monitor-capture.c
 	plugin-main.c)
 
