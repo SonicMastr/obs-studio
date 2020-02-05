@@ -1071,6 +1071,74 @@ static bool UpdateVS2017Redists(json_t *root)
 	return success;
 }
 
+static LSTATUS get_reg(HKEY hkey, LPCWSTR sub_key, LPCWSTR value_name, bool b32)
+{
+	HKEY key;
+	LSTATUS status;
+	DWORD flags = b32 ? KEY_WOW64_32KEY : KEY_WOW64_64KEY;
+	DWORD size = sizeof(DWORD);
+	DWORD val;
+
+	status = RegOpenKeyEx(hkey, sub_key, 0, KEY_READ | flags, &key);
+	if (status == ERROR_SUCCESS) {
+		status = RegQueryValueExW(key, value_name, NULL, NULL,
+					  (LPBYTE)&val, &size);
+		RegCloseKey(key);
+	}
+	return status;
+}
+
+#define IMPLICIT_LAYERS L"SOFTWARE\\Khronos\\Vulkan\\ImplicitLayers"
+#define VULKAN_JSON L"\\data\\obs-plugins\\win-capture\\obs-vulkan"
+
+static void UpdateVulkanRegistry(bool b32)
+{
+	DWORD flags = b32 ? KEY_WOW64_32KEY : KEY_WOW64_64KEY;
+	wchar_t path[MAX_PATH];
+	DWORD temp;
+	LSTATUS s;
+	HKEY key;
+
+	GetCurrentDirectoryW(_countof(path) - 1, path);
+	StringCbCat(path, sizeof(path), VULKAN_JSON);
+	StringCbCat(path, sizeof(path), b32 ? L"32" : L"64");
+	StringCbCat(path, sizeof(path), L".json");
+
+	s = get_reg(HKEY_CURRENT_USER, IMPLICIT_LAYERS, path, b32);
+	if (s == ERROR_SUCCESS) {
+		s = RegOpenKeyEx(HKEY_CURRENT_USER, IMPLICIT_LAYERS, 0,
+				 KEY_WRITE | flags, &key);
+		if (s == ERROR_SUCCESS) {
+			RegDeleteValueW(key, path);
+			RegCloseKey(key);
+		}
+	}
+
+	s = get_reg(HKEY_LOCAL_MACHINE, IMPLICIT_LAYERS, path, b32);
+	if (s == ERROR_SUCCESS) {
+		return;
+	}
+
+	/* ------------------- */
+
+	s = RegCreateKeyExW(HKEY_LOCAL_MACHINE, IMPLICIT_LAYERS, 0, NULL, 0,
+			    KEY_WRITE | flags, NULL, &key, &temp);
+	if (s != ERROR_SUCCESS) {
+		goto finish;
+	}
+
+	DWORD zero = 0;
+	s = RegSetValueExW(key, path, 0, REG_DWORD, (const BYTE *)&zero,
+			   sizeof(zero));
+	if (s != ERROR_SUCCESS) {
+		goto finish;
+	}
+
+finish:
+	if (key)
+		RegCloseKey(key);
+}
+
 static bool Update(wchar_t *cmdLine)
 {
 	/* ------------------------------------- *
@@ -1251,6 +1319,11 @@ static bool Update(wchar_t *cmdLine)
 			return false;
 		}
 	}
+
+	/* ------------------------------------- *
+	 * Check for vulkan registry             */
+
+	UpdateVulkanRegistry(is32bit);
 
 	/* ------------------------------------- *
 	 * Generate file hash json               */
