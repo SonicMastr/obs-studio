@@ -1099,7 +1099,7 @@ static void UpdateVulkanRegistry(bool b32)
 	LSTATUS s;
 	HKEY key;
 
-	GetCurrentDirectoryW(_countof(path) - 1, path);
+	GetCurrentDirectoryW(_countof(path), path);
 	StringCbCat(path, sizeof(path), VULKAN_JSON);
 	StringCbCat(path, sizeof(path), b32 ? L"32" : L"64");
 	StringCbCat(path, sizeof(path), L".json");
