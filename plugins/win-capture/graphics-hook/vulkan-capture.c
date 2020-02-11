@@ -66,10 +66,14 @@ struct vk_swap_data {
 };
 
 struct vk_data {
+	bool valid;
+
 	struct vk_device_funcs funcs;
 	VkPhysicalDevice phy_device;
 	VkDevice device;
 	struct vk_swap_data swaps[OBJ_MAX];
+	struct vk_swap_data *cur_swap;
+	uint32_t swap_idx;
 
 	uint32_t queue_fam_idx;
 	VkCommandPool cmd_pool;
@@ -156,14 +160,9 @@ static inline struct vk_data *get_device_data(void *dev)
 	return &device_data[idx];
 }
 
-static void vk_remove_device(void *dev)
+static void vk_shtex_free(struct vk_data *data)
 {
-	size_t idx = find_obj_idx(devices, GET_LDT(dev));
-	if (idx == SIZE_MAX) {
-		return;
-	}
-
-	struct vk_data *data = &device_data[idx];
+	capture_free();
 
 	for (int i = 0; i < OBJ_MAX; i++) {
 		struct vk_swap_data *swap = &data->swaps[i];
@@ -176,22 +175,44 @@ static void vk_remove_device(void *dev)
 			data->funcs.FreeMemory(data->device, swap->export_mem,
 					       NULL);
 
-		swap->handle = INVALID_HANDLE_VALUE;
-		swap->sc = VK_NULL_HANDLE;
-		swap->surf = NULL;
-
-		if (swap->d3d11_tex)
+		if (swap->d3d11_tex) {
 			ID3D11Resource_Release(swap->d3d11_tex);
+		}
 
-		swap->captured = 0;
+		swap->handle = INVALID_HANDLE_VALUE;
+		swap->d3d11_tex = NULL;
+		swap->export_mem = NULL;
+		swap->export_image = NULL;
+
+		swap->captured = false;
 	}
 
-	if (data->d3d11_context)
+	if (data->d3d11_context) {
 		ID3D11DeviceContext_Release(data->d3d11_context);
-	if (data->d3d11_device)
+		data->d3d11_context = NULL;
+	}
+	if (data->d3d11_device) {
 		ID3D11Device_Release(data->d3d11_device);
-	if (data->dxgi_swap)
+		data->d3d11_device = NULL;
+	}
+	if (data->dxgi_swap) {
 		IDXGISwapChain_Release(data->dxgi_swap);
+		data->dxgi_swap = NULL;
+	}
+
+	data->cur_swap = NULL;
+
+	hlog("------------------ vulkan capture freed ------------------");
+}
+
+static void vk_remove_device(void *dev)
+{
+	size_t idx = find_obj_idx(devices, GET_LDT(dev));
+	if (idx == SIZE_MAX) {
+		return;
+	}
+
+	struct vk_data *data = &device_data[idx];
 
 	memset(data, 0, sizeof(*data));
 
@@ -209,6 +230,8 @@ struct vk_surf_data {
 };
 
 struct vk_inst_data {
+	bool valid;
+
 	struct vk_inst_funcs funcs;
 	struct vk_surf_data surfaces[OBJ_MAX];
 };
@@ -597,7 +620,7 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 	return true;
 }
 
-static void vh_shtex_init(struct vk_data *data, HWND window,
+static void vk_shtex_init(struct vk_data *data, HWND window,
 			  struct vk_swap_data *swap)
 {
 	if (!vk_shtex_init_window(data)) {
@@ -613,11 +636,22 @@ static void vh_shtex_init(struct vk_data *data, HWND window,
 		return;
 	}
 
+	data->cur_swap = swap;
+
 	swap->captured = capture_init_shtex(
 		&swap->shtex_info, window, swap->image_extent.width,
 		swap->image_extent.height, swap->image_extent.width,
 		swap->image_extent.height, (uint32_t)swap->format, false,
 		(uintptr_t)swap->handle);
+
+	if (swap->captured) {
+		if (global_hook_info->force_shmem) {
+			hlog("vk_shtex_init: shared memory capture currently "
+			     "unsupported; ignoring");
+		}
+
+		hlog("vulkan shared texture capture successful");
+	}
 }
 
 static void vk_shtex_capture(struct vk_data *data,
@@ -769,29 +803,56 @@ static inline HWND get_swap_window(struct vk_swap_data *swap)
 	return NULL;
 }
 
+static void vk_capture(struct vk_data *data, const VkPresentInfoKHR *info)
+{
+	struct vk_swap_data *swap = NULL;
+	HWND window = NULL;
+	uint32_t idx = 0;
+
+	debug("QueuePresentKHR called on "
+	      "devicekey %p, swapchain count %d",
+	      &data->funcs, info->swapchainCount);
+
+	/* use first swap chain associated with a window */
+	for (; idx < info->swapchainCount; idx++) {
+		struct vk_swap_data *cur_swap =
+			get_swap_data(data, info->pSwapchains[idx]);
+		window = get_swap_window(cur_swap);
+		if (!!window) {
+			swap = cur_swap;
+			break;
+		}
+	}
+
+	if (!window) {
+		return;
+	}
+
+	if (capture_should_stop()) {
+		vk_shtex_free(data);
+	}
+	if (capture_should_init()) {
+		vk_shtex_init(data, window, swap);
+	}
+	if (capture_ready()) {
+		if (swap != data->cur_swap) {
+			vk_shtex_free(data);
+			return;
+		}
+
+		vk_shtex_capture(data, &data->funcs, swap, idx, info);
+	}
+}
+
 static VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
 					  const VkPresentInfoKHR *info)
 {
 	struct vk_data *data = get_device_data(queue);
 	struct vk_device_funcs *funcs = &data->funcs;
 
-	debug("QueuePresentKHR called on "
-	      "devicekey %p, swapchain count %d",
-	      funcs, info->swapchainCount);
-
-	for (uint32_t i = 0; i < info->swapchainCount; i++) {
-		struct vk_swap_data *swap =
-			get_swap_data(data, info->pSwapchains[i]);
-		HWND window = get_swap_window(swap);
-
-		if (!!window && !swap->captured) {
-			vh_shtex_init(data, window, swap);
-		}
-		if (swap->captured) {
-			vk_shtex_capture(data, funcs, swap, i, info);
-		}
+	if (data->valid) {
+		vk_capture(data, info);
 	}
-
 	return funcs->QueuePresentKHR(queue, info);
 }
 
@@ -862,6 +923,7 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 					 VkInstance *p_inst)
 {
 	VkInstanceCreateInfo info = *cinfo;
+	bool funcs_not_found = false;
 
 	/* -------------------------------------------------------- */
 	/* step through chain until we get to the link info         */
@@ -907,11 +969,18 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 	/* -------------------------------------------------------- */
 	/* fetch the functions we need                              */
 
-	struct vk_inst_funcs *funcs = get_inst_funcs(inst);
+	struct vk_inst_data *data = get_inst_data(inst);
+	struct vk_inst_funcs *funcs = &data->funcs;
 
 #define GETADDR(x)                                     \
 	do {                                           \
 		funcs->x = (void *)gpa(inst, "vk" #x); \
+		if (!funcs->x) {                       \
+			flog("could not get instance " \
+			     "address for %s",         \
+			     #x);                      \
+			funcs_not_found = true;        \
+		}                                      \
 	} while (false)
 
 	GETADDR(GetInstanceProcAddr);
@@ -923,6 +992,7 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 	GETADDR(GetPhysicalDeviceImageFormatProperties2KHR);
 #undef GETADDR
 
+	data->valid = !funcs_not_found;
 	return res;
 }
 
@@ -1176,7 +1246,9 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 				       VkDevice *p_device)
 {
 	VkDeviceCreateInfo info = *cinfo;
-	struct vk_inst_funcs *ifuncs = get_inst_funcs(phy_device);
+	struct vk_inst_data *idata = get_inst_data(phy_device);
+	struct vk_inst_funcs *ifuncs = &idata->funcs;
+	struct vk_data *data = NULL;
 
 	uint32_t fam_idx = 0;
 	void *a = NULL, *b = NULL;
@@ -1219,12 +1291,18 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 	PFN_vkCreateDevice createFunc =
 		(PFN_vkCreateDevice)gipa(VK_NULL_HANDLE, "vkCreateDevice");
 
-	createFunc(phy_device, &info, ac, p_device);
+	ret = createFunc(phy_device, idata->valid ? &info : cinfo, ac,
+			 p_device);
+	if (ret != VK_SUCCESS) {
+		goto fail;
+	}
+
 	VkDevice device = *p_device;
 
-	struct vk_data *data = get_device_data(*p_device);
+	data = get_device_data(*p_device);
 	struct vk_device_funcs *dfuncs = &data->funcs;
 
+	data->valid = false; /* set true below if it doesn't go to fail */
 	data->queue_fam_idx = fam_idx;
 	data->phy_device = phy_device;
 	data->device = device;
@@ -1232,7 +1310,20 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 	/* -------------------------------------------------------- */
 	/* fetch the functions we need                              */
 
+	bool funcs_not_found = false;
+
 #define GETADDR(x)                                         \
+	do {                                               \
+		dfuncs->x = (void *)gdpa(device, "vk" #x); \
+		if (!dfuncs->x) {                          \
+			flog("could not get device "       \
+			     "address for %s",             \
+			     #x);                          \
+			funcs_not_found = true;            \
+		}                                          \
+	} while (false)
+
+#define GETADDR_OPTIONAL(x)                                \
 	do {                                               \
 		dfuncs->x = (void *)gdpa(device, "vk" #x); \
 	} while (false)
@@ -1245,12 +1336,12 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 	GETADDR(AllocateMemory);
 	GETADDR(FreeMemory);
 	GETADDR(BindImageMemory);
-	GETADDR(BindImageMemory2KHR);
+	GETADDR_OPTIONAL(BindImageMemory2KHR);
 	GETADDR(GetSwapchainImagesKHR);
 	GETADDR(CreateImage);
 	GETADDR(DestroyImage);
 	GETADDR(GetImageMemoryRequirements);
-	GETADDR(GetImageMemoryRequirements2KHR);
+	GETADDR_OPTIONAL(GetImageMemoryRequirements2KHR);
 	GETADDR(BeginCommandBuffer);
 	GETADDR(EndCommandBuffer);
 	GETADDR(CmdCopyImage);
@@ -1261,7 +1352,15 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 	GETADDR(DeviceWaitIdle);
 	GETADDR(CreateCommandPool);
 	GETADDR(AllocateCommandBuffers);
+#undef GETADDR_OPTIONAL
 #undef GETADDR
+
+	if (funcs_not_found) {
+		goto fail;
+	}
+	if (!idata->valid) {
+		goto fail;
+	}
 
 	/* -------------------------------------------------------- */
 	/* retrieve the queue                                       */
@@ -1297,10 +1396,11 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 
 	if (!vk_shared_tex_supported(ifuncs, phy_device, format, usage,
 				     &data->external_mem_props)) {
-		flog("texture sharing is not supported\n");
-	} else {
-		ret = VK_SUCCESS;
+		flog("texture sharing is not supported");
+		goto fail;
 	}
+
+	data->valid = true;
 
 fail:
 	free(a);
@@ -1359,18 +1459,12 @@ static void VKAPI OBS_DestroySwapchainKHR(VkDevice device, VkSwapchainKHR sc,
 
 	struct vk_swap_data *swap = get_swap_data(data, sc);
 	if (swap) {
-		if (swap->export_image)
-			funcs->DestroyImage(device, swap->export_image, NULL);
-		if (swap->export_mem)
-			funcs->FreeMemory(device, swap->export_mem, NULL);
+		if (data->cur_swap == swap) {
+			vk_shtex_free(data);
+		}
 
-		swap->handle = INVALID_HANDLE_VALUE;
 		swap->sc = VK_NULL_HANDLE;
 		swap->surf = NULL;
-		swap->captured = false;
-
-		if (swap->d3d11_tex)
-			ID3D11Resource_Release(swap->d3d11_tex);
 	}
 
 	funcs->DestroySwapchainKHR(device, sc, ac);
