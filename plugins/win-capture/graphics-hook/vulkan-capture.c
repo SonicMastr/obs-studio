@@ -926,7 +926,7 @@ static inline bool is_inst_link_info(VkLayerInstanceCreateInfo *lici)
 	       lici->function == VK_LAYER_LINK_INFO;
 }
 
-EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
+static VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 					 const VkAllocationCallbacks *ac,
 					 VkInstance *p_inst)
 {
@@ -1004,7 +1004,7 @@ EXPORT VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 	return res;
 }
 
-EXPORT VkResult VKAPI OBS_DestroyInstance(VkInstance instance,
+static VkResult VKAPI OBS_DestroyInstance(VkInstance instance,
 					  const VkAllocationCallbacks *ac)
 {
 	struct vk_inst_funcs *funcs = get_inst_funcs(instance);
@@ -1503,7 +1503,7 @@ static VkResult VKAPI OBS_CreateWin32SurfaceKHR(
 	if (!strcmp(name, "vk" #func)) \
 		return (VkFunc)&OBS_##func;
 
-EXPORT VkFunc VKAPI OBS_GetDeviceProcAddr(VkDevice dev, const char *name)
+static VkFunc VKAPI OBS_GetDeviceProcAddr(VkDevice dev, const char *name)
 {
 	struct vk_data *data = get_device_data(dev);
 	struct vk_device_funcs *funcs = &data->funcs;
@@ -1523,7 +1523,7 @@ EXPORT VkFunc VKAPI OBS_GetDeviceProcAddr(VkDevice dev, const char *name)
 	return funcs->GetDeviceProcAddr(dev, name);
 }
 
-EXPORT VkFunc VKAPI OBS_GetInstanceProcAddr(VkInstance inst, const char *name)
+static VkFunc VKAPI OBS_GetInstanceProcAddr(VkInstance inst, const char *name)
 {
 	debug_procaddr("vkGetInstanceProcAddr(%p, \"%s\")", inst, name);
 
