@@ -22,6 +22,8 @@
 
 #include "vulkan-capture.h"
 
+//#define ENABLE_FOR_UNEXPLAINABLE_AMD_CRASH 1
+
 /* ======================================================================== */
 /* defs/statics                                                                  */
 
@@ -620,20 +622,20 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 	return true;
 }
 
-static void vk_shtex_init(struct vk_data *data, HWND window,
+static bool vk_shtex_init(struct vk_data *data, HWND window,
 			  struct vk_swap_data *swap)
 {
 	if (!vk_shtex_init_window(data)) {
-		return;
+		return false;
 	}
 	if (!vk_shtex_init_d3d11(data)) {
-		return;
+		return false;
 	}
 	if (!vk_shtex_init_d3d11_tex(data, swap)) {
-		return;
+		return false;
 	}
 	if (!vk_shtex_init_vulkan_tex(data, swap)) {
-		return;
+		return false;
 	}
 
 	data->cur_swap = swap;
@@ -646,12 +648,15 @@ static void vk_shtex_init(struct vk_data *data, HWND window,
 
 	if (swap->captured) {
 		if (global_hook_info->force_shmem) {
-			hlog("vk_shtex_init: shared memory capture currently "
+			flog("shared memory capture currently "
 			     "unsupported; ignoring");
 		}
 
 		hlog("vulkan shared texture capture successful");
+		return true;
 	}
+
+	return false;
 }
 
 static void vk_shtex_capture(struct vk_data *data,
@@ -832,7 +837,10 @@ static void vk_capture(struct vk_data *data, const VkPresentInfoKHR *info)
 		vk_shtex_free(data);
 	}
 	if (capture_should_init()) {
-		vk_shtex_init(data, window, swap);
+		if (!vk_shtex_init(data, window, swap)) {
+			vk_shtex_free(data);
+			data->valid = false;
+		}
 	}
 	if (capture_ready()) {
 		if (swap != data->cur_swap) {
@@ -1067,6 +1075,7 @@ static VkResult VKAPI OBS_EnumerateDeviceExtensionProperties(
 	return VK_SUCCESS;
 }
 
+#if ENABLE_FOR_UNEXPLAINABLE_AMD_CRASH
 static bool
 vk_shared_tex_supported(struct vk_inst_funcs *funcs,
 			VkPhysicalDevice phy_device, VkFormat format,
@@ -1110,6 +1119,7 @@ vk_shared_tex_supported(struct vk_inst_funcs *funcs,
 	return ((VK_SUCCESS == result) &&
 		(features & VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT_KHR));
 }
+#endif
 
 static bool vk_init_req_extensions(VkPhysicalDevice phy_device,
 				   VkDeviceCreateInfo *info,
@@ -1390,6 +1400,7 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 		debug_res("AllocateCommandBuffers", res);
 	}
 
+#if ENABLE_FOR_UNEXPLAINABLE_AMD_CRASH
 	VkFormat format = VK_FORMAT_R8G8B8A8_UNORM;
 	VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
 				  VK_IMAGE_USAGE_TRANSFER_DST_BIT;
@@ -1399,6 +1410,7 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 		flog("texture sharing is not supported");
 		goto fail;
 	}
+#endif
 
 	data->valid = true;
 
