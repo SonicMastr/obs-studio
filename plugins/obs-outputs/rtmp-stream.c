@@ -17,6 +17,10 @@
 
 #include "rtmp-stream.h"
 
+#ifdef _WIN32
+#include <util/windows/win-version.h>
+#endif
+
 #ifndef SEC_TO_NSEC
 #define SEC_TO_NSEC 1000000000ULL
 #endif
@@ -935,6 +939,22 @@ static void win32_log_interface_type(struct rtmp_stream *stream)
 }
 #endif
 
+static void append_os(struct dstr *str)
+{
+#ifdef _WIN32
+	struct win_version_info ver;
+	get_win_ver(&ver);
+
+	dstr_catf(str, "Windows%d.%d.%d", ver.major, ver.minor, ver.build);
+#elif __APPLE__
+	dstr_cat(str, "macOS");
+#elif __linux__
+	dstr_cat(str, "Linux");
+#else
+	dstr_cat(str, "UnknownOrUnix");
+#endif
+}
+
 static int try_connect(struct rtmp_stream *stream)
 {
 	if (dstr_is_empty(&stream->path)) {
@@ -971,6 +991,13 @@ static int try_connect(struct rtmp_stream *stream)
 			bool ipv6 = len == sizeof(struct sockaddr_in6);
 			info("Binding to IPv%d", ipv6 ? 6 : 4);
 		}
+	}
+
+	/* specify operating system and version for Twitch */
+	if (dstr_find_i(&stream->path, "twitch.tv") != NULL &&
+	    dstr_find(&stream->key, "?") == NULL) {
+		dstr_cat(&stream->key, "?os=");
+		append_os(&stream->key);
 	}
 
 	RTMP_AddStream(&stream->rtmp, stream->key.array);
