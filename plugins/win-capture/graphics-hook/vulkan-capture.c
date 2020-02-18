@@ -559,6 +559,13 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 		}
 	}
 
+	if (mem_type_idx == pdmp.memoryTypeCount) {
+		flog("failed to get memory type index");
+		funcs->DestroyImage(data->device, swap->export_image, NULL);
+		swap->export_image = NULL;
+		return false;
+	}
+
 	/* -------------------------------------------------------- */
 	/* allocate memory                                          */
 
@@ -617,6 +624,7 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 		     use_bi2 ? "BindImageMemory2KHR" : "BindImageMemory",
 		     result_to_str(res));
 		funcs->DestroyImage(data->device, swap->export_image, NULL);
+		swap->export_image = NULL;
 		return false;
 	}
 	return true;
