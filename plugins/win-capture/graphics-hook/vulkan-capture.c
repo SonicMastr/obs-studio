@@ -677,6 +677,10 @@ static void vk_shtex_capture(struct vk_data *data,
 	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	begin_info.pInheritanceInfo = NULL;
 
+	VkImageMemoryBarrier mb[2];
+	VkImageMemoryBarrier *src_mb = &mb[0];
+	VkImageMemoryBarrier *dst_mb = &mb[1];
+
 	/* ------------------------------------------------------ */
 	/* do image copy                                          */
 
@@ -688,49 +692,44 @@ static void vk_shtex_capture(struct vk_data *data,
 	/* ------------------------------------------------------ */
 	/* transition cur_backbuffer to transfer source state     */
 
-	VkImageMemoryBarrier src_mb;
-	src_mb.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-	src_mb.pNext = NULL;
-	src_mb.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-	src_mb.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-	src_mb.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-	src_mb.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-	src_mb.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	src_mb.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	src_mb.image = cur_backbuffer;
-	src_mb.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	src_mb.subresourceRange.baseMipLevel = 0;
-	src_mb.subresourceRange.levelCount = 1;
-	src_mb.subresourceRange.baseArrayLayer = 0;
-	src_mb.subresourceRange.layerCount = 1;
+	src_mb->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	src_mb->pNext = NULL;
+	src_mb->srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	src_mb->dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	src_mb->oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	src_mb->newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	src_mb->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	src_mb->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	src_mb->image = cur_backbuffer;
+	src_mb->subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	src_mb->subresourceRange.baseMipLevel = 0;
+	src_mb->subresourceRange.levelCount = 1;
+	src_mb->subresourceRange.baseArrayLayer = 0;
+	src_mb->subresourceRange.layerCount = 1;
 
 	VkPipelineStageFlags src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
 	VkPipelineStageFlags dst_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
 
-	funcs->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
-				  0, NULL, 0, NULL, 1, &src_mb);
-
 	/* ------------------------------------------------------ */
 	/* transition exportedTexture to transfer dest state      */
 
-	VkImageMemoryBarrier dst_mb;
-	dst_mb.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-	dst_mb.pNext = NULL;
-	dst_mb.srcAccessMask = 0;
-	dst_mb.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-	dst_mb.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	dst_mb.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	dst_mb.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	dst_mb.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	dst_mb.image = swap->export_image;
-	dst_mb.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	dst_mb.subresourceRange.baseMipLevel = 0;
-	dst_mb.subresourceRange.levelCount = 1;
-	dst_mb.subresourceRange.baseArrayLayer = 0;
-	dst_mb.subresourceRange.layerCount = 1;
+	dst_mb->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	dst_mb->pNext = NULL;
+	dst_mb->srcAccessMask = 0;
+	dst_mb->dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	dst_mb->oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	dst_mb->newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	dst_mb->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	dst_mb->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	dst_mb->image = swap->export_image;
+	dst_mb->subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	dst_mb->subresourceRange.baseMipLevel = 0;
+	dst_mb->subresourceRange.levelCount = 1;
+	dst_mb->subresourceRange.baseArrayLayer = 0;
+	dst_mb->subresourceRange.layerCount = 1;
 
 	funcs->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
-				  0, NULL, 0, NULL, 1, &dst_mb);
+				  0, NULL, 0, NULL, 2, mb);
 
 	/* ------------------------------------------------------ */
 	/* copy cur_backbuffer's content to our interop image     */
@@ -764,19 +763,17 @@ static void vk_shtex_capture(struct vk_data *data,
 	 * generally good to restore things to their original
 	 * state.  */
 
-	src_mb.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-	src_mb.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-	src_mb.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-	src_mb.dstAccessMask = 0;
-	funcs->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
-				  0, NULL, 0, NULL, 1, &src_mb);
+	src_mb->oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	src_mb->newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	src_mb->srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	src_mb->dstAccessMask = 0;
 
-	dst_mb.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	dst_mb.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	dst_mb.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-	dst_mb.dstAccessMask = 0;
+	dst_mb->oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	dst_mb->newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	dst_mb->srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	dst_mb->dstAccessMask = 0;
 	funcs->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
-				  0, NULL, 0, NULL, 1, &dst_mb);
+				  0, NULL, 0, NULL, 2, mb);
 
 	funcs->EndCommandBuffer(data->cmd_buffer);
 
