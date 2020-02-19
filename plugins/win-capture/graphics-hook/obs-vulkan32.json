@@ -10,38 +10,6 @@
         "functions": {
             "vkNegotiateLoaderLayerInterfaceVersion": "OBS_Negotiate"
         },
-        "instance_extensions": [
-            {
-                "name": "VK_KHR_external_memory_capabilities",
-                "spec_version": "1.1"
-            },
-            {
-                "name": "VK_KHR_get_physical_device_properties2",
-                "spec_version": "1"
-            }
-        ],
-        "device_extensions": [
-            {
-                "name": "VK_KHR_external_memory_win32",
-                "spec_version": "1"
-            },
-            {
-                "name": "VK_KHR_external_memory",
-                "spec_version": "1"
-            },
-            {
-                "name": "VK_KHR_dedicated_allocation",
-                "spec_version": "1"
-            },
-            {
-                "name": "VK_KHR_get_memory_requirements2",
-                "spec_version": "1"
-            },
-            {
-                "name": "VK_KHR_bind_memory2",
-                "spec_version": "1"
-            }
-        ],
         "disable_environment": {
             "DISABLE_VULKAN_OBS_CAPTURE": "1"
         }
