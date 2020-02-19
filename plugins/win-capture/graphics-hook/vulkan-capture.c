@@ -22,8 +22,6 @@
 
 #include "vulkan-capture.h"
 
-//#define ENABLE_FOR_UNEXPLAINABLE_AMD_CRASH 1
-
 /* ======================================================================== */
 /* defs/statics                                                                  */
 
@@ -1092,7 +1090,6 @@ static VkResult VKAPI OBS_EnumerateDeviceExtensionProperties(
 	return VK_SUCCESS;
 }
 
-#if ENABLE_FOR_UNEXPLAINABLE_AMD_CRASH
 static bool
 vk_shared_tex_supported(struct vk_inst_funcs *funcs,
 			VkPhysicalDevice phy_device, VkFormat format,
@@ -1136,7 +1133,6 @@ vk_shared_tex_supported(struct vk_inst_funcs *funcs,
 	return ((VK_SUCCESS == result) &&
 		(features & VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT_KHR));
 }
-#endif
 
 static bool vk_init_req_extensions(VkPhysicalDevice phy_device,
 				   VkDeviceCreateInfo *info,
@@ -1417,7 +1413,6 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 		debug_res("AllocateCommandBuffers", res);
 	}
 
-#if ENABLE_FOR_UNEXPLAINABLE_AMD_CRASH
 	VkFormat format = VK_FORMAT_R8G8B8A8_UNORM;
 	VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
 				  VK_IMAGE_USAGE_TRANSFER_DST_BIT;
@@ -1427,7 +1422,6 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 		flog("texture sharing is not supported");
 		goto fail;
 	}
-#endif
 
 	data->valid = true;
 
