@@ -872,59 +872,6 @@ static VkResult VKAPI OBS_QueuePresentKHR(VkQueue queue,
 /* ======================================================================== */
 /* setup hooks                                                              */
 
-struct ext_info {
-	const char *name;
-	bool found;
-	bool enabled;
-};
-
-struct ext_spec {
-	uint32_t count;
-	const char *const *names;
-};
-
-#define get_ext_spec(x) ((struct ext_spec *)(&(x)->enabledExtensionCount))
-
-static void *vk_enable_exts(struct ext_spec *spec, struct ext_info *exts,
-			    size_t count)
-{
-	size_t enable_count = count;
-
-	for (uint32_t i = 0; i < spec->count; i++) {
-		for (size_t j = 0; j < count; j++) {
-			const char *name = spec->names[i];
-			struct ext_info *ext = &exts[j];
-
-			if (!ext->enabled && strcmp(ext->name, name) == 0) {
-				ext->enabled = true;
-				enable_count--;
-			}
-		}
-	}
-
-	if (!enable_count) {
-		return NULL;
-	}
-
-	uint32_t idx = spec->count;
-	spec->count += (uint32_t)enable_count;
-
-	const char **new_names = malloc(sizeof(const char *) * spec->count);
-	for (uint32_t i = 0; i < idx; i++) {
-		new_names[i] = (const char *)(spec->names[i]);
-	}
-
-	for (size_t i = 0; i < count; i++) {
-		struct ext_info *ext = &exts[i];
-		if (!ext->enabled) {
-			new_names[idx++] = ext->name;
-		}
-	}
-
-	spec->names = new_names;
-	return (void *)new_names;
-}
-
 static inline bool is_inst_link_info(VkLayerInstanceCreateInfo *lici)
 {
 	return lici->sType == VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO &&
@@ -959,18 +906,6 @@ static VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 	lici->u.pLayerInfo = lici->u.pLayerInfo->pNext;
 
 	/* -------------------------------------------------------- */
-	/* enable instance extensions we need                       */
-
-	struct ext_info req_ext[] = {
-		{.name = VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME},
-		{.name = VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME},
-	};
-
-	const size_t req_ext_count = sizeof(req_ext) / sizeof(req_ext[0]);
-
-	void *a = vk_enable_exts(get_ext_spec(&info), req_ext, req_ext_count);
-
-	/* -------------------------------------------------------- */
 	/* (HACK) Set api version to 1.1 if set to 1.0              */
 	/* We do this to get our extensions working properly        */
 
@@ -987,7 +922,6 @@ static VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 
 	VkResult res = create(&info, ac, p_inst);
 	VkInstance inst = *p_inst;
-	free(a);
 
 	/* -------------------------------------------------------- */
 	/* fetch the functions we need                              */
@@ -1134,52 +1068,6 @@ vk_shared_tex_supported(struct vk_inst_funcs *funcs,
 		(features & VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT_KHR));
 }
 
-static bool vk_init_req_extensions(VkPhysicalDevice phy_device,
-				   VkDeviceCreateInfo *info,
-				   struct vk_inst_funcs *funcs, void **a)
-{
-	struct ext_info req_ext[] = {
-		{.name = VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME},
-		{.name = VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME},
-		{.name = VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME},
-		{.name = VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME},
-		{.name = VK_KHR_BIND_MEMORY_2_EXTENSION_NAME},
-	};
-
-	const size_t req_ext_count = sizeof(req_ext) / sizeof(req_ext[0]);
-	size_t req_ext_found = 0;
-
-	uint32_t count = 0;
-	funcs->EnumerateDeviceExtensionProperties(phy_device, NULL, &count,
-						  NULL);
-
-	VkExtensionProperties *props =
-		(VkExtensionProperties *)alloca(sizeof(*props) * count);
-	funcs->EnumerateDeviceExtensionProperties(phy_device, NULL, &count,
-						  props);
-
-	for (uint32_t i = 0; i < count; i++) {
-		for (size_t j = 0; j < req_ext_count; j++) {
-			const char *name = props[i].extensionName;
-			struct ext_info *ext = &req_ext[j];
-
-			if (!ext->found && strcmp(ext->name, name) == 0) {
-				ext->found = true;
-				req_ext_found++;
-			}
-		}
-	}
-
-	if (req_ext_found != req_ext_count) {
-		debug("device extensions needed to perform capture "
-		      "are not available");
-		return false;
-	}
-
-	*a = vk_enable_exts(get_ext_spec(info), req_ext, req_ext_count);
-	return true;
-}
-
 static bool vk_get_usable_queue(VkPhysicalDevice phy_device,
 				VkDeviceCreateInfo *info,
 				struct vk_inst_funcs *funcs,
@@ -1274,12 +1162,9 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 	struct vk_data *data = NULL;
 
 	uint32_t fam_idx = 0;
-	void *a = NULL, *b = NULL;
+	void *b = NULL;
 	VkResult ret = VK_ERROR_INITIALIZATION_FAILED;
 
-	if (!vk_init_req_extensions(phy_device, &info, ifuncs, &a)) {
-		goto fail;
-	}
 	if (!vk_get_usable_queue(phy_device, &info, ifuncs, &fam_idx, &b)) {
 		goto fail;
 	}
@@ -1426,7 +1311,6 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 	data->valid = true;
 
 fail:
-	free(a);
 	free(b);
 	return ret;
 }
