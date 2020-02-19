@@ -974,6 +974,16 @@ static VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 	void *a = vk_enable_exts(get_ext_spec(&info), req_ext, req_ext_count);
 
 	/* -------------------------------------------------------- */
+	/* (HACK) Set api version to 1.1 if set to 1.0              */
+	/* We do this to get our extensions working properly        */
+
+	VkApplicationInfo ai = *info.pApplicationInfo;
+	if (ai.apiVersion < VK_API_VERSION_1_1) {
+		info.pApplicationInfo = &ai;
+		ai.apiVersion = VK_API_VERSION_1_1;
+	}
+
+	/* -------------------------------------------------------- */
 	/* create instance                                          */
 
 	PFN_vkCreateInstance create = (void *)gpa(NULL, "vkCreateInstance");
