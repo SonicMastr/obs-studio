@@ -532,8 +532,7 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 		imri2.pNext = NULL;
 		imri2.image = swap->export_image;
 
-		funcs->GetImageMemoryRequirements2KHR(data->device, &imri2,
-						      &mr2);
+		funcs->GetImageMemoryRequirements2(data->device, &imri2, &mr2);
 		mr = mr2.memoryRequirements;
 	} else {
 		funcs->GetImageMemoryRequirements(data->device,
@@ -614,14 +613,14 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 		bimi.image = swap->export_image;
 		bimi.memory = swap->export_mem;
 		bimi.memoryOffset = 0;
-		res = funcs->BindImageMemory2KHR(data->device, 1, &bimi);
+		res = funcs->BindImageMemory2(data->device, 1, &bimi);
 	} else {
 		res = funcs->BindImageMemory(data->device, swap->export_image,
 					     swap->export_mem, 0);
 	}
 	if (VK_SUCCESS != res) {
 		flog("%s failed: %s",
-		     use_bi2 ? "BindImageMemory2KHR" : "BindImageMemory",
+		     use_bi2 ? "BindImageMemory2" : "BindImageMemory",
 		     result_to_str(res));
 		funcs->DestroyImage(data->device, swap->export_image, NULL);
 		swap->export_image = NULL;
@@ -1015,7 +1014,7 @@ static VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 	GETADDR(CreateWin32SurfaceKHR);
 	GETADDR(GetPhysicalDeviceQueueFamilyProperties);
 	GETADDR(GetPhysicalDeviceMemoryProperties);
-	GETADDR(GetPhysicalDeviceImageFormatProperties2KHR);
+	GETADDR(GetPhysicalDeviceImageFormatProperties2);
 #undef GETADDR
 
 	data->valid = !funcs_not_found;
@@ -1126,7 +1125,7 @@ vk_shared_tex_supported(struct vk_inst_funcs *funcs,
 	props.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2_KHR;
 	props.pNext = &external_props;
 
-	VkResult result = funcs->GetPhysicalDeviceImageFormatProperties2KHR(
+	VkResult result = funcs->GetPhysicalDeviceImageFormatProperties2(
 		phy_device, &info, &props);
 
 	*external_mem_props = external_props.externalMemoryProperties;
@@ -1364,12 +1363,12 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 	GETADDR(AllocateMemory);
 	GETADDR(FreeMemory);
 	GETADDR(BindImageMemory);
-	GETADDR_OPTIONAL(BindImageMemory2KHR);
+	GETADDR(BindImageMemory2);
 	GETADDR(GetSwapchainImagesKHR);
 	GETADDR(CreateImage);
 	GETADDR(DestroyImage);
 	GETADDR(GetImageMemoryRequirements);
-	GETADDR_OPTIONAL(GetImageMemoryRequirements2KHR);
+	GETADDR(GetImageMemoryRequirements2);
 	GETADDR(BeginCommandBuffer);
 	GETADDR(EndCommandBuffer);
 	GETADDR(CmdCopyImage);
