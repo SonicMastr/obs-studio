@@ -715,7 +715,7 @@ static void vk_shtex_capture(struct vk_data *data,
 
 	dst_mb->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 	dst_mb->pNext = NULL;
-	dst_mb->srcAccessMask = 0;
+	dst_mb->srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 	dst_mb->dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 	dst_mb->oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	dst_mb->newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -770,8 +770,8 @@ static void vk_shtex_capture(struct vk_data *data,
 
 	dst_mb->oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	dst_mb->newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	dst_mb->srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-	dst_mb->dstAccessMask = 0;
+	dst_mb->srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	dst_mb->dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 	funcs->CmdPipelineBarrier(data->cmd_buffer, src_stages, dst_stages, 0,
 				  0, NULL, 0, NULL, 2, mb);
 
