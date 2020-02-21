@@ -731,7 +731,7 @@ static void vk_shtex_capture(struct vk_data *data,
 
 	src_mb->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 	src_mb->pNext = NULL;
-	src_mb->srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	src_mb->srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
 	src_mb->dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 	src_mb->oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 	src_mb->newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
@@ -743,9 +743,6 @@ static void vk_shtex_capture(struct vk_data *data,
 	src_mb->subresourceRange.levelCount = 1;
 	src_mb->subresourceRange.baseArrayLayer = 0;
 	src_mb->subresourceRange.layerCount = 1;
-
-	VkPipelineStageFlags src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
-	VkPipelineStageFlags dst_stages = VK_PIPELINE_STAGE_TRANSFER_BIT;
 
 	/* ------------------------------------------------------ */
 	/* transition exportedTexture to transfer dest state      */
@@ -771,8 +768,11 @@ static void vk_shtex_capture(struct vk_data *data,
 	dst_mb->subresourceRange.baseArrayLayer = 0;
 	dst_mb->subresourceRange.layerCount = 1;
 
-	funcs->CmdPipelineBarrier(cmd_buffer, src_stages, dst_stages, 0, 0,
-				  NULL, 0, NULL, 2, mb);
+	funcs->CmdPipelineBarrier(cmd_buffer,
+				  VK_PIPELINE_STAGE_TRANSFER_BIT |
+					  VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+				  VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0,
+				  NULL, 2, mb);
 
 	/* ------------------------------------------------------ */
 	/* copy cur_backbuffer's content to our interop image     */
@@ -809,14 +809,16 @@ static void vk_shtex_capture(struct vk_data *data,
 	src_mb->oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 	src_mb->newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 	src_mb->srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-	src_mb->dstAccessMask = 0;
+	src_mb->dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
 
 	dst_mb->oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	dst_mb->newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	dst_mb->srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 	dst_mb->dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-	funcs->CmdPipelineBarrier(cmd_buffer, src_stages, dst_stages, 0, 0,
-				  NULL, 0, NULL, 2, mb);
+	funcs->CmdPipelineBarrier(cmd_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+				  VK_PIPELINE_STAGE_TRANSFER_BIT |
+					  VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+				  0, 0, NULL, 0, NULL, 2, mb);
 
 	funcs->EndCommandBuffer(cmd_buffer);
 
