@@ -36,7 +36,12 @@ struct vk_device_funcs {
 	DEF_FUNC(QueueWaitIdle);
 	DEF_FUNC(DeviceWaitIdle);
 	DEF_FUNC(CreateCommandPool);
+	DEF_FUNC(DestroyCommandPool);
 	DEF_FUNC(AllocateCommandBuffers);
+	DEF_FUNC(CreateFence);
+	DEF_FUNC(DestroyFence);
+	DEF_FUNC(WaitForFences);
+	DEF_FUNC(ResetFences);
 };
 
 #undef DEF_FUNC
