@@ -1403,6 +1403,7 @@ static void VKAPI OBS_GetDeviceQueue(VkDevice device, uint32_t queueFamilyIndex,
 	if (data->queue_count < _countof(data->queues)) {
 		data->queues[data->queue_count].queue = *pQueue;
 		data->queues[data->queue_count].fam_idx = queueFamilyIndex;
+		++data->queue_count;
 	}
 }
 
