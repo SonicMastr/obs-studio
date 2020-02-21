@@ -191,12 +191,13 @@ static void vk_shtex_free(struct vk_data *data)
 						data->funcs.WaitForFences(
 							data->device, 1, &fence,
 							VK_TRUE, ~0ull);
+						data->funcs.ResetFences(
+							data->device, 1,
+							&fence);
+						data->cmd_buffer_busy[fam_idx]
+								     [image_idx] =
+							false;
 					}
-
-					data->funcs.DestroyFence(data->device,
-								 fence, NULL);
-					data->fences[fam_idx][image_idx] =
-						VK_NULL_HANDLE;
 				}
 			}
 		}
@@ -224,17 +225,6 @@ static void vk_shtex_free(struct vk_data *data)
 
 		swap->captured = false;
 	}
-
-	for (uint32_t fam_idx = 0; fam_idx < _countof(data->cmd_pools);
-	     fam_idx++) {
-		if (data->cmd_pools[fam_idx] != VK_NULL_HANDLE) {
-			data->funcs.DestroyCommandPool(
-				data->device, data->cmd_pools[fam_idx], NULL);
-			data->cmd_pools[fam_idx] = VK_NULL_HANDLE;
-		}
-	}
-
-	data->queue_count = 0;
 
 	if (data->d3d11_context) {
 		ID3D11DeviceContext_Release(data->d3d11_context);
@@ -1326,6 +1316,44 @@ static void VKAPI OBS_DestroyDevice(VkDevice device,
 {
 	struct vk_data *data = get_device_data(device);
 	if (data) {
+		for (uint32_t fam_idx = 0; fam_idx < _countof(data->cmd_pools);
+		     fam_idx++) {
+			if (data->cmd_pools[fam_idx] != VK_NULL_HANDLE) {
+				for (int image_idx = 0; image_idx < OBJ_MAX;
+				     image_idx++) {
+					VkFence fence =
+						data->fences[fam_idx][image_idx];
+					if (fence != VK_NULL_HANDLE) {
+						if (data->cmd_buffer_busy
+							    [fam_idx]
+							    [image_idx]) {
+							data->funcs.WaitForFences(
+								data->device, 1,
+								&fence, VK_TRUE,
+								~0ull);
+							data->cmd_buffer_busy
+								[fam_idx]
+								[image_idx] =
+								false;
+						}
+
+						data->funcs.DestroyFence(
+							data->device, fence,
+							NULL);
+						data->fences[fam_idx][image_idx] =
+							VK_NULL_HANDLE;
+					}
+				}
+
+				data->funcs.DestroyCommandPool(
+					data->device, data->cmd_pools[fam_idx],
+					NULL);
+				data->cmd_pools[fam_idx] = VK_NULL_HANDLE;
+			}
+		}
+
+		data->queue_count = 0;
+
 		vk_remove_device(device);
 		data->funcs.DestroyDevice(device, ac);
 	}
