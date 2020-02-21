@@ -825,7 +825,7 @@ static void vk_shtex_capture(struct vk_data *data,
 
 	dst_mb->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 	dst_mb->pNext = NULL;
-	dst_mb->srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	dst_mb->srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
 	dst_mb->dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 	dst_mb->oldLayout = oldLayout;
 	dst_mb->newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -839,7 +839,7 @@ static void vk_shtex_capture(struct vk_data *data,
 	dst_mb->subresourceRange.layerCount = 1;
 
 	funcs->CmdPipelineBarrier(cmd_buffer,
-				  VK_PIPELINE_STAGE_TRANSFER_BIT |
+				  VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
 					  VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
 				  VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0,
 				  NULL, 2, mb);
@@ -884,9 +884,9 @@ static void vk_shtex_capture(struct vk_data *data,
 	dst_mb->oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	dst_mb->newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	dst_mb->srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-	dst_mb->dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	dst_mb->dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 	funcs->CmdPipelineBarrier(cmd_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
-				  VK_PIPELINE_STAGE_TRANSFER_BIT |
+				  VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
 					  VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
 				  0, 0, NULL, 0, NULL, 2, mb);
 
