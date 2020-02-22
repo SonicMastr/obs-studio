@@ -72,6 +72,14 @@ struct vk_queue_data {
 	uint32_t fam_idx;
 };
 
+struct vk_cmd_pool_data {
+	VkCommandPool cmd_pool;
+	VkCommandBuffer cmd_buffers[OBJ_MAX];
+	VkFence fences[OBJ_MAX];
+	bool cmd_buffer_busy[OBJ_MAX];
+	uint32_t image_count;
+};
+
 struct vk_data {
 	bool valid;
 
@@ -85,10 +93,7 @@ struct vk_data {
 	struct vk_queue_data queues[OBJ_MAX];
 	uint32_t queue_count;
 
-	VkCommandPool cmd_pools[OBJ_MAX];
-	VkCommandBuffer cmd_buffers[OBJ_MAX][OBJ_MAX];
-	VkFence fences[OBJ_MAX][OBJ_MAX];
-	bool cmd_buffer_busy[OBJ_MAX][OBJ_MAX];
+	struct vk_cmd_pool_data cmd_pools[OBJ_MAX];
 	VkExternalMemoryPropertiesKHR external_mem_props;
 
 	ID3D11Device *d3d11_device;
@@ -174,34 +179,44 @@ static inline struct vk_data *get_device_data(void *dev)
 	return &device_data[idx];
 }
 
+static void vk_shtex_clear_fence(struct vk_data *data,
+				 struct vk_cmd_pool_data *pool_data,
+				 uint32_t image_idx)
+{
+	VkFence fence = pool_data->fences[image_idx];
+	if (pool_data->cmd_buffer_busy[image_idx]) {
+		VkDevice device = data->device;
+		struct vk_device_funcs *funcs = &data->funcs;
+		funcs->WaitForFences(device, 1, &fence, VK_TRUE, ~0ull);
+		funcs->ResetFences(device, 1, &fence);
+		pool_data->cmd_buffer_busy[image_idx] = false;
+	}
+}
+
+static void vk_shtex_wait_until_pool_idle(struct vk_data *data,
+					  struct vk_cmd_pool_data *pool_data)
+{
+	for (uint32_t image_idx = 0; image_idx < pool_data->image_count;
+	     image_idx++) {
+		vk_shtex_clear_fence(data, pool_data, image_idx);
+	}
+}
+
+static void vk_shtex_wait_until_idle(struct vk_data *data)
+{
+	for (uint32_t fam_idx = 0; fam_idx < _countof(data->cmd_pools);
+	     fam_idx++) {
+		struct vk_cmd_pool_data *pool_data = &data->cmd_pools[fam_idx];
+		if (pool_data->cmd_pool != VK_NULL_HANDLE)
+			vk_shtex_wait_until_pool_idle(data, pool_data);
+	}
+}
+
 static void vk_shtex_free(struct vk_data *data)
 {
 	capture_free();
 
-	for (uint32_t fam_idx = 0; fam_idx < _countof(data->cmd_pools);
-	     fam_idx++) {
-		if (data->cmd_pools[fam_idx] != VK_NULL_HANDLE) {
-			for (int image_idx = 0; image_idx < OBJ_MAX;
-			     image_idx++) {
-				VkFence fence =
-					data->fences[fam_idx][image_idx];
-				if (fence != VK_NULL_HANDLE) {
-					if (data->cmd_buffer_busy[fam_idx]
-								 [image_idx]) {
-						data->funcs.WaitForFences(
-							data->device, 1, &fence,
-							VK_TRUE, ~0ull);
-						data->funcs.ResetFences(
-							data->device, 1,
-							&fence);
-						data->cmd_buffer_busy[fam_idx]
-								     [image_idx] =
-							false;
-					}
-				}
-			}
-		}
-	}
+	vk_shtex_wait_until_idle(data);
 
 	for (int swap_idx = 0; swap_idx < OBJ_MAX; swap_idx++) {
 		struct vk_swap_data *swap = &data->swaps[swap_idx];
@@ -705,6 +720,81 @@ static bool vk_shtex_init(struct vk_data *data, HWND window,
 	return false;
 }
 
+static void vk_shtex_create_cmd_pool_objects(struct vk_data *data,
+					     uint32_t fam_idx,
+					     uint32_t image_count)
+{
+	struct vk_cmd_pool_data *pool_data = &data->cmd_pools[fam_idx];
+
+	VkCommandPoolCreateInfo cpci;
+	cpci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	cpci.pNext = NULL;
+	cpci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+	cpci.queueFamilyIndex = fam_idx;
+
+	VkResult res = data->funcs.CreateCommandPool(data->device, &cpci, NULL,
+						     &pool_data->cmd_pool);
+	debug_res("CreateCommandPool", res);
+
+	VkCommandBufferAllocateInfo cbai;
+	cbai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	cbai.pNext = NULL;
+	cbai.commandPool = pool_data->cmd_pool;
+	cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	cbai.commandBufferCount = image_count;
+
+	res = data->funcs.AllocateCommandBuffers(data->device, &cbai,
+						 pool_data->cmd_buffers);
+	debug_res("AllocateCommandBuffers", res);
+	for (uint32_t image_index = 0; image_index < image_count;
+	     image_index++) {
+		/* Dispatch table something or other. Well-designed API. */
+		VkCommandBuffer cmd_buffer =
+			pool_data->cmd_buffers[image_index];
+		*(void **)cmd_buffer = *(void **)(data->device);
+
+		VkFence *fence = &pool_data->fences[image_index];
+		VkFenceCreateInfo fci = {0};
+		fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		fci.pNext = NULL;
+		fci.flags = 0;
+		res = data->funcs.CreateFence(data->device, &fci, NULL, fence);
+		debug_res("CreateFence", res);
+	}
+
+	pool_data->image_count = image_count;
+}
+
+static void vk_shtex_destroy_fence(struct vk_data *data, bool *cmd_buffer_busy,
+				   VkFence *fence)
+{
+	VkDevice device = data->device;
+
+	if (*cmd_buffer_busy) {
+		data->funcs.WaitForFences(device, 1, fence, VK_TRUE, ~0ull);
+		*cmd_buffer_busy = false;
+	}
+
+	data->funcs.DestroyFence(device, *fence, NULL);
+	*fence = VK_NULL_HANDLE;
+}
+
+static void
+vk_shtex_destroy_cmd_pool_objects(struct vk_data *data,
+				  struct vk_cmd_pool_data *pool_data)
+{
+	for (uint32_t image_idx = 0; image_idx < pool_data->image_count;
+	     image_idx++) {
+		bool *cmd_buffer_busy = &pool_data->cmd_buffer_busy[image_idx];
+		VkFence *fence = &pool_data->fences[image_idx];
+		vk_shtex_destroy_fence(data, cmd_buffer_busy, fence);
+	}
+
+	data->funcs.DestroyCommandPool(data->device, pool_data->cmd_pool, NULL);
+	pool_data->cmd_pool = VK_NULL_HANDLE;
+	pool_data->image_count = 0;
+}
+
 static void vk_shtex_capture(struct vk_data *data,
 			     struct vk_device_funcs *funcs,
 			     struct vk_swap_data *swap, uint32_t idx,
@@ -737,52 +827,18 @@ static void vk_shtex_capture(struct vk_data *data,
 	if (fam_idx >= _countof(data->cmd_pools))
 		return;
 
-	if (data->cmd_pools[fam_idx] == VK_NULL_HANDLE) {
-		VkCommandPoolCreateInfo cpci;
-		cpci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-		cpci.pNext = NULL;
-		cpci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-		cpci.queueFamilyIndex = fam_idx;
-
-		VkResult res = funcs->CreateCommandPool(
-			data->device, &cpci, NULL, &data->cmd_pools[fam_idx]);
-		debug_res("CreateCommandPool", res);
-
-		VkCommandBufferAllocateInfo cbai;
-		cbai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-		cbai.pNext = NULL;
-		cbai.commandPool = data->cmd_pools[fam_idx];
-		cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-		cbai.commandBufferCount = swap->image_count;
-
-		res = funcs->AllocateCommandBuffers(data->device, &cbai,
-						    data->cmd_buffers[fam_idx]);
-		debug_res("AllocateCommandBuffers", res);
-		for (uint32_t image_index = 0; image_index < swap->image_count;
-		     image_index++) {
-			/* Dispatch table something or other. Well-designed API. */
-			*(void **)data->cmd_buffers[fam_idx][image_index] =
-				*(void **)(data->device);
-
-			VkFenceCreateInfo fci = {0};
-			fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-			fci.pNext = NULL;
-			fci.flags = 0;
-			res = data->funcs.CreateFence(
-				data->device, &fci, NULL,
-				&data->fences[fam_idx][image_index]);
-			debug_res("CreateFence", res);
-		}
+	struct vk_cmd_pool_data *pool_data = &data->cmd_pools[fam_idx];
+	VkCommandPool *pool = &pool_data->cmd_pool;
+	const uint32_t image_count = swap->image_count;
+	if (pool_data->image_count < image_count) {
+		if (*pool != VK_NULL_HANDLE)
+			vk_shtex_destroy_cmd_pool_objects(data, pool_data);
+		vk_shtex_create_cmd_pool_objects(data, fam_idx, image_count);
 	}
 
-	VkFence *fence = &data->fences[fam_idx][image_index];
-	if (data->cmd_buffer_busy[fam_idx][image_index]) {
-		funcs->WaitForFences(data->device, 1, fence, VK_TRUE, ~0ull);
-		data->funcs.ResetFences(data->device, 1, fence);
-		data->cmd_buffer_busy[fam_idx][image_index] = false;
-	}
+	vk_shtex_clear_fence(data, pool_data, image_index);
 
-	VkCommandBuffer cmd_buffer = data->cmd_buffers[fam_idx][image_index];
+	VkCommandBuffer cmd_buffer = pool_data->cmd_buffers[image_index];
 	res = funcs->BeginCommandBuffer(cmd_buffer, &begin_info);
 	debug_res("BeginCommandBuffer", res);
 
@@ -895,11 +951,12 @@ static void vk_shtex_capture(struct vk_data *data,
 	submit_info.signalSemaphoreCount = 0;
 	submit_info.pSignalSemaphores = NULL;
 
-	res = funcs->QueueSubmit(queue, 1, &submit_info, *fence);
+	VkFence fence = pool_data->fences[image_index];
+	res = funcs->QueueSubmit(queue, 1, &submit_info, fence);
 	debug_res("QueueSubmit", res);
 
 	if (res == VK_SUCCESS)
-		data->cmd_buffer_busy[fam_idx][image_index] = true;
+		pool_data->cmd_buffer_busy[image_index] = true;
 }
 
 static inline HWND get_swap_window(struct vk_swap_data *swap)
@@ -1315,48 +1372,21 @@ static void VKAPI OBS_DestroyDevice(VkDevice device,
 				    const VkAllocationCallbacks *ac)
 {
 	struct vk_data *data = get_device_data(device);
-	if (data) {
-		for (uint32_t fam_idx = 0; fam_idx < _countof(data->cmd_pools);
-		     fam_idx++) {
-			if (data->cmd_pools[fam_idx] != VK_NULL_HANDLE) {
-				for (int image_idx = 0; image_idx < OBJ_MAX;
-				     image_idx++) {
-					VkFence fence =
-						data->fences[fam_idx][image_idx];
-					if (fence != VK_NULL_HANDLE) {
-						if (data->cmd_buffer_busy
-							    [fam_idx]
-							    [image_idx]) {
-							data->funcs.WaitForFences(
-								data->device, 1,
-								&fence, VK_TRUE,
-								~0ull);
-							data->cmd_buffer_busy
-								[fam_idx]
-								[image_idx] =
-								false;
-						}
+	if (!data)
+		return;
 
-						data->funcs.DestroyFence(
-							data->device, fence,
-							NULL);
-						data->fences[fam_idx][image_idx] =
-							VK_NULL_HANDLE;
-					}
-				}
-
-				data->funcs.DestroyCommandPool(
-					data->device, data->cmd_pools[fam_idx],
-					NULL);
-				data->cmd_pools[fam_idx] = VK_NULL_HANDLE;
-			}
+	for (uint32_t fam_idx = 0; fam_idx < _countof(data->cmd_pools);
+	     fam_idx++) {
+		struct vk_cmd_pool_data *pool_data = &data->cmd_pools[fam_idx];
+		if (pool_data->cmd_pool != VK_NULL_HANDLE) {
+			vk_shtex_destroy_cmd_pool_objects(data, pool_data);
 		}
-
-		data->queue_count = 0;
-
-		vk_remove_device(device);
-		data->funcs.DestroyDevice(device, ac);
 	}
+
+	data->queue_count = 0;
+
+	vk_remove_device(device);
+	data->funcs.DestroyDevice(device, ac);
 }
 
 static VkResult VKAPI
