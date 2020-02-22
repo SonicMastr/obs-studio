@@ -56,7 +56,7 @@ struct vk_swap_data {
 	VkFormat format;
 	VkSurfaceKHR surf;
 	VkImage export_image;
-	bool layout_undefined;
+	bool layout_initialized;
 	VkDeviceMemory export_mem;
 	VkImage swap_images[OBJ_MAX];
 	uint32_t image_count;
@@ -563,7 +563,7 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 		return false;
 	}
 
-	swap->layout_undefined = true;
+	swap->layout_initialized = false;
 
 	/* -------------------------------------------------------- */
 	/* get image memory requirements                            */
@@ -843,6 +843,34 @@ static void vk_shtex_capture(struct vk_data *data,
 	debug_res("BeginCommandBuffer", res);
 
 	/* ------------------------------------------------------ */
+	/* transition shared texture if necessary                 */
+
+	if (!swap->layout_initialized) {
+		VkImageMemoryBarrier imb;
+		imb.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		imb.pNext = NULL;
+		imb.srcAccessMask = 0;
+		imb.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		imb.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		imb.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		imb.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		imb.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		imb.image = swap->export_image;
+		imb.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imb.subresourceRange.baseMipLevel = 0;
+		imb.subresourceRange.levelCount = 1;
+		imb.subresourceRange.baseArrayLayer = 0;
+		imb.subresourceRange.layerCount = 1;
+
+		funcs->CmdPipelineBarrier(cmd_buffer,
+					  VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+					  VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,
+					  NULL, 0, NULL, 1, &imb);
+
+		swap->layout_initialized = true;
+	}
+
+	/* ------------------------------------------------------ */
 	/* transition cur_backbuffer to transfer source state     */
 
 	src_mb->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -863,20 +891,14 @@ static void vk_shtex_capture(struct vk_data *data,
 	/* ------------------------------------------------------ */
 	/* transition exportedTexture to transfer dest state      */
 
-	VkImageLayout oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	if (swap->layout_undefined) {
-		oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		swap->layout_undefined = false;
-	}
-
 	dst_mb->sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 	dst_mb->pNext = NULL;
-	dst_mb->srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	dst_mb->srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 	dst_mb->dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-	dst_mb->oldLayout = oldLayout;
+	dst_mb->oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	dst_mb->newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	dst_mb->srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	dst_mb->dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	dst_mb->srcQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL_KHR;
+	dst_mb->dstQueueFamilyIndex = fam_idx;
 	dst_mb->image = swap->export_image;
 	dst_mb->subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	dst_mb->subresourceRange.baseMipLevel = 0;
@@ -885,7 +907,7 @@ static void vk_shtex_capture(struct vk_data *data,
 	dst_mb->subresourceRange.layerCount = 1;
 
 	funcs->CmdPipelineBarrier(cmd_buffer,
-				  VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+				  VK_PIPELINE_STAGE_TRANSFER_BIT |
 					  VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
 				  VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0,
 				  NULL, 2, mb);
@@ -922,17 +944,15 @@ static void vk_shtex_capture(struct vk_data *data,
 	 * generally good to restore things to their original
 	 * state.  */
 
-	src_mb->oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-	src_mb->newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 	src_mb->srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 	src_mb->dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+	src_mb->oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	src_mb->newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
-	dst_mb->oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	dst_mb->newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	dst_mb->srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-	dst_mb->dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	dst_mb->srcQueueFamilyIndex = fam_idx;
+	dst_mb->dstQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL_KHR;
 	funcs->CmdPipelineBarrier(cmd_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
-				  VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+				  VK_PIPELINE_STAGE_TRANSFER_BIT |
 					  VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
 				  0, 0, NULL, 0, NULL, 2, mb);
 
