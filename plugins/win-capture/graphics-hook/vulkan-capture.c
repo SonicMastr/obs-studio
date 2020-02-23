@@ -94,7 +94,7 @@ struct vk_data {
 	uint32_t queue_count;
 
 	struct vk_cmd_pool_data cmd_pools[OBJ_MAX];
-	VkExternalMemoryPropertiesKHR external_mem_props;
+	VkExternalMemoryProperties external_mem_props;
 
 	ID3D11Device *d3d11_device;
 	ID3D11DeviceContext *d3d11_context;
@@ -529,8 +529,8 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 	/* -------------------------------------------------------- */
 	/* create texture                                           */
 
-	VkExternalMemoryImageCreateInfoKHR emici;
-	emici.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO_KHR;
+	VkExternalMemoryImageCreateInfo emici;
+	emici.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
 	emici.pNext = NULL;
 	emici.handleTypes =
 		VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_KMT_BIT;
@@ -569,20 +569,20 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 	/* get image memory requirements                            */
 
 	VkMemoryRequirements mr;
-	bool use_gimr2 = f & VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT_KHR;
+	bool use_gimr2 = f & VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT;
 
 	if (use_gimr2) {
-		VkMemoryDedicatedRequirementsKHR mdr = {0};
-		mdr.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS_KHR;
+		VkMemoryDedicatedRequirements mdr = {0};
+		mdr.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS;
 		mdr.pNext = NULL;
 
-		VkMemoryRequirements2KHR mr2 = {0};
-		mr2.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2_KHR;
+		VkMemoryRequirements2 mr2 = {0};
+		mr2.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
 		mr2.pNext = &mdr;
 
-		VkImageMemoryRequirementsInfo2KHR imri2 = {0};
+		VkImageMemoryRequirementsInfo2 imri2 = {0};
 		imri2.sType =
-			VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2_KHR;
+			VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2;
 		imri2.pNext = NULL;
 		imri2.image = swap->export_image;
 
@@ -636,13 +636,13 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 	mai.allocationSize = mr.size;
 	mai.memoryTypeIndex = mem_type_idx;
 
-	VkMemoryDedicatedAllocateInfoKHR mdai;
+	VkMemoryDedicatedAllocateInfo mdai;
 	mdai.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
 	mdai.pNext = NULL;
 	mdai.buffer = VK_NULL_HANDLE;
 
 	if (data->external_mem_props.externalMemoryFeatures &
-	    VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT_KHR) {
+	    VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT) {
 		mdai.image = swap->export_image;
 		imw32hi.pNext = &mdai;
 	}
@@ -659,10 +659,10 @@ static inline bool vk_shtex_init_vulkan_tex(struct vk_data *data,
 	/* -------------------------------------------------------- */
 	/* bind image memory                                        */
 
-	bool use_bi2 = f & VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT_KHR;
+	bool use_bi2 = f & VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT;
 
 	if (use_bi2) {
-		VkBindImageMemoryInfoKHR bimi = {0};
+		VkBindImageMemoryInfo bimi = {0};
 		bimi.sType = VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_INFO;
 		bimi.image = swap->export_image;
 		bimi.memory = swap->export_mem;
@@ -897,7 +897,7 @@ static void vk_shtex_capture(struct vk_data *data,
 	dst_mb->dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 	dst_mb->oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	dst_mb->newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	dst_mb->srcQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL_KHR;
+	dst_mb->srcQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL;
 	dst_mb->dstQueueFamilyIndex = fam_idx;
 	dst_mb->image = swap->export_image;
 	dst_mb->subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -950,7 +950,8 @@ static void vk_shtex_capture(struct vk_data *data,
 	src_mb->newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
 	dst_mb->srcQueueFamilyIndex = fam_idx;
-	dst_mb->dstQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL_KHR;
+	dst_mb->dstQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL;
+
 	funcs->CmdPipelineBarrier(cmd_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
 				  VK_PIPELINE_STAGE_TRANSFER_BIT |
 					  VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
@@ -1123,9 +1124,7 @@ static VkResult VKAPI OBS_CreateInstance(const VkInstanceCreateInfo *cinfo,
 
 	GETADDR(GetInstanceProcAddr);
 	GETADDR(DestroyInstance);
-	GETADDR(EnumerateDeviceExtensionProperties);
 	GETADDR(CreateWin32SurfaceKHR);
-	GETADDR(GetPhysicalDeviceQueueFamilyProperties);
 	GETADDR(GetPhysicalDeviceMemoryProperties);
 	GETADDR(GetPhysicalDeviceImageFormatProperties2);
 #undef GETADDR
@@ -1143,84 +1142,22 @@ static VkResult VKAPI OBS_DestroyInstance(VkInstance instance,
 	return VK_SUCCESS;
 }
 
-static VkResult VKAPI OBS_EnumerateInstanceLayerProperties(
-	uint32_t *p_count, VkLayerProperties *props)
-{
-	if (p_count)
-		*p_count = 1;
-
-	if (props) {
-		strcpy(props->layerName, "VK_LAYER_OBS_HOOK");
-		strcpy(props->description, "Open Broadcaster Software hook");
-		props->implementationVersion = 1;
-		props->specVersion = VK_API_VERSION_1_1;
-	}
-	return VK_SUCCESS;
-}
-
-static VkResult VKAPI OBS_EnumerateInstanceExtensionProperties(
-	const char *name, uint32_t *p_count, VkExtensionProperties *props)
-{
-	if (name == NULL || strcmp(name, "VK_LAYER_OBS_HOOK"))
-		return VK_ERROR_LAYER_NOT_PRESENT;
-
-	if (p_count)
-		*p_count = 1;
-
-	if (props) {
-		strcpy(props[0].extensionName,
-		       VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
-		props[0].specVersion = VK_API_VERSION_1_1;
-	}
-
-	return VK_SUCCESS;
-}
-
-static VkResult VKAPI OBS_EnumerateDeviceExtensionProperties(
-	VkPhysicalDevice phy_device, const char *name, uint32_t *p_count,
-	VkExtensionProperties *props)
-{
-	/* pass through any queries that aren't to us */
-	if (name == NULL || strcmp(name, "VK_LAYER_OBS_HOOK")) {
-		if (phy_device == VK_NULL_HANDLE)
-			return VK_SUCCESS;
-
-		struct vk_inst_funcs *funcs = get_inst_funcs(phy_device);
-		return funcs->EnumerateDeviceExtensionProperties(
-			phy_device, name, p_count, props);
-	}
-
-	if (p_count)
-		*p_count = 2;
-
-	if (props) {
-		strcpy(props[0].extensionName,
-		       VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME);
-		props[0].specVersion = VK_API_VERSION_1_1;
-		strcpy(props[1].extensionName,
-		       VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME);
-		props[1].specVersion = VK_API_VERSION_1_1;
-	}
-
-	return VK_SUCCESS;
-}
-
 static bool
 vk_shared_tex_supported(struct vk_inst_funcs *funcs,
 			VkPhysicalDevice phy_device, VkFormat format,
 			VkImageUsageFlags usage,
-			VkExternalMemoryPropertiesKHR *external_mem_props)
+			VkExternalMemoryProperties *external_mem_props)
 {
-	VkPhysicalDeviceImageFormatInfo2KHR info;
-	VkPhysicalDeviceExternalImageFormatInfoKHR external_info;
+	VkPhysicalDeviceImageFormatInfo2 info;
+	VkPhysicalDeviceExternalImageFormatInfo external_info;
 
 	external_info.sType =
-		VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO_KHR;
+		VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO;
 	external_info.pNext = NULL;
 	external_info.handleType =
-		VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_KMT_BIT_KHR;
+		VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_KMT_BIT;
 
-	info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2_KHR;
+	info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2;
 	info.pNext = &external_info;
 	info.format = format;
 	info.type = VK_IMAGE_TYPE_2D;
@@ -1228,13 +1165,13 @@ vk_shared_tex_supported(struct vk_inst_funcs *funcs,
 	info.flags = 0;
 	info.usage = usage;
 
-	VkExternalImageFormatPropertiesKHR external_props = {0};
+	VkExternalImageFormatProperties external_props = {0};
 	external_props.sType =
-		VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES_KHR;
+		VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES;
 	external_props.pNext = NULL;
 
-	VkImageFormatProperties2KHR props = {0};
-	props.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2_KHR;
+	VkImageFormatProperties2 props = {0};
+	props.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
 	props.pNext = &external_props;
 
 	VkResult result = funcs->GetPhysicalDeviceImageFormatProperties2(
@@ -1246,7 +1183,7 @@ vk_shared_tex_supported(struct vk_inst_funcs *funcs,
 		external_mem_props->externalMemoryFeatures;
 
 	return ((VK_SUCCESS == result) &&
-		(features & VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT_KHR));
+		(features & VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT));
 }
 
 static inline bool is_device_link_info(VkLayerDeviceCreateInfo *lici)
@@ -1353,8 +1290,6 @@ static VkResult VKAPI OBS_CreateDevice(VkPhysicalDevice phy_device,
 	GETADDR(CmdPipelineBarrier);
 	GETADDR(GetDeviceQueue);
 	GETADDR(QueueSubmit);
-	GETADDR(QueueWaitIdle);
-	GETADDR(DeviceWaitIdle);
 	GETADDR(CreateCommandPool);
 	GETADDR(DestroyCommandPool);
 	GETADDR(AllocateCommandBuffers);
@@ -1514,7 +1449,6 @@ static VkFunc VKAPI OBS_GetDeviceProcAddr(VkDevice dev, const char *name)
 	debug_procaddr("vkGetDeviceProcAddr(%p, \"%s\")", dev, name);
 
 	GETPROCADDR(GetDeviceProcAddr);
-	GETPROCADDR(EnumerateDeviceExtensionProperties);
 	GETPROCADDR(CreateDevice);
 	GETPROCADDR(DestroyDevice);
 	GETPROCADDR(CreateSwapchainKHR);
@@ -1533,15 +1467,12 @@ static VkFunc VKAPI OBS_GetInstanceProcAddr(VkInstance inst, const char *name)
 
 	/* instance chain functions we intercept */
 	GETPROCADDR(GetInstanceProcAddr);
-	GETPROCADDR(EnumerateInstanceLayerProperties);
-	GETPROCADDR(EnumerateInstanceExtensionProperties);
 	GETPROCADDR(CreateInstance);
 	GETPROCADDR(DestroyInstance);
 	GETPROCADDR(CreateWin32SurfaceKHR);
 
 	/* device chain functions we intercept */
 	GETPROCADDR(GetDeviceProcAddr);
-	GETPROCADDR(EnumerateDeviceExtensionProperties);
 	GETPROCADDR(CreateDevice);
 	GETPROCADDR(DestroyDevice);
 

@@ -5,9 +5,7 @@
 struct vk_inst_funcs {
 	DEF_FUNC(GetInstanceProcAddr);
 	DEF_FUNC(DestroyInstance);
-	DEF_FUNC(EnumerateDeviceExtensionProperties);
 	DEF_FUNC(CreateWin32SurfaceKHR);
-	DEF_FUNC(GetPhysicalDeviceQueueFamilyProperties);
 	DEF_FUNC(GetPhysicalDeviceMemoryProperties);
 	DEF_FUNC(GetPhysicalDeviceImageFormatProperties2);
 };
@@ -33,8 +31,6 @@ struct vk_device_funcs {
 	DEF_FUNC(CmdPipelineBarrier);
 	DEF_FUNC(GetDeviceQueue);
 	DEF_FUNC(QueueSubmit);
-	DEF_FUNC(QueueWaitIdle);
-	DEF_FUNC(DeviceWaitIdle);
 	DEF_FUNC(CreateCommandPool);
 	DEF_FUNC(DestroyCommandPool);
 	DEF_FUNC(AllocateCommandBuffers);
