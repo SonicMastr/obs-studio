@@ -69,8 +69,6 @@ if (VULKAN_FOUND)
 			"${CMAKE_CURRENT_SOURCE_DIR}/obs-vulkan64.json" "${OBS_OUTPUT_DIR}/$<CONFIGURATION>/data/obs-plugins/win-capture/obs-vulkan64.json"
 		COMMAND "${CMAKE_COMMAND}" -E copy
 			"${CMAKE_CURRENT_SOURCE_DIR}/obs-vulkan32.json" "${OBS_OUTPUT_DIR}/$<CONFIGURATION>/data/obs-plugins/win-capture/obs-vulkan.json"
-		COMMAND "${CMAKE_COMMAND}" -E copy
-			"${CMAKE_CURRENT_SOURCE_DIR}/obs-vulkan-registry.bat" "${OBS_OUTPUT_DIR}/$<CONFIGURATION>/data/obs-plugins/win-capture/obs-vulkan-registry.bat"
 		VERBATIM)
 endif()
 install_obs_datatarget(graphics-hook "obs-plugins/win-capture")
