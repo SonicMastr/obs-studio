@@ -61,14 +61,14 @@ static LSTATUS get_reg(HKEY hkey, LPCWSTR sub_key, LPCWSTR value_name, bool b64)
 				 SHGFP_TYPE_CURRENT, path);        \
 		StringCbCatW(path, sizeof(path), L"\\");           \
 		StringCbCatW(path, sizeof(path), subpath);         \
-	} while (true)
+	} while (0, 0)
 
 #define make_filename(str, name, ext)                                \
 	do {                                                         \
 		StringCbCatW(str, sizeof(str), name);                \
 		StringCbCatW(str, sizeof(str), b64 ? L"64" : L"32"); \
 		StringCbCatW(str, sizeof(str), ext);                 \
-	} while (false)
+	} while (0, 0)
 
 /* ------------------------------------------------------------------------- */
 /* function to get the path to the hook                                      */
@@ -132,22 +132,33 @@ static bool update_hook_file(bool b64)
 	if (!file_exists(src)) {
 		return false;
 	}
+	if (!file_exists(src_json)) {
+		return false;
+	}
 	if (!file_exists(dst) || !file_exists(dst_json)) {
 		CreateDirectoryW(temp, NULL);
-		CopyFileW(src, dst, false);
-		CopyFileW(src_json, dst_json, false);
-		return true;
+		if (!CopyFileW(src, dst, false))
+			return false;
+		if (!CopyFileW(src_json, dst_json, false))
+			return false;
 	}
 
 	struct win_version_info ver_src = {0};
 	struct win_version_info ver_dst = {0};
-	get_dll_ver(src, &ver_src);
-	get_dll_ver(dst, &ver_dst);
+	if (!get_dll_ver(src, &ver_src))
+		return false;
+	if (!get_dll_ver(dst, &ver_dst))
+		return false;
 
 	/* if source is greater than dst, overwrite new file  */
-	if (win_version_compare(&ver_dst, &ver_src) < 0) {
-		CopyFileW(src, dst, false);
-		CopyFileW(src_json, dst_json, false);
+	while (win_version_compare(&ver_dst, &ver_src) < 0) {
+		if (!CopyFileW(src, dst, false))
+			return false;
+		if (!CopyFileW(src_json, dst_json, false))
+			return false;
+
+		if (!get_dll_ver(dst, &ver_dst))
+			return false;
 	}
 
 	return true;
