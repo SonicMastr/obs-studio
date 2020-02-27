@@ -11,8 +11,8 @@ configure_file(
 
 
 set(graphics-hook_HEADERS
-	"${CMAKE_BINARY_DIR}/plugins/win-capture/graphics-hook/config/graphics-hook-config.h"
 	graphics-hook.h
+	graphics-hook-ver.h
 	../graphics-hook-info.h
 	../hook-helpers.h
 	../funchook.h
@@ -44,6 +44,7 @@ if (VULKAN_FOUND)
 endif()
 
 add_library(graphics-hook MODULE
+	graphics-hook.rc
 	${graphics-hook_SOURCES}
 	${graphics-hook_HEADERS})
 

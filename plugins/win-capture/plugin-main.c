@@ -65,7 +65,7 @@ void wait_for_hook_initialization(void)
 	}
 }
 
-void init_vulkan_capture(void);
+void init_hook_files(void);
 
 bool obs_module_load(void)
 {
@@ -96,7 +96,7 @@ bool obs_module_load(void)
 
 	char *config_path = obs_module_config_path(NULL);
 
-	init_vulkan_capture();
+	init_hook_files();
 	init_hooks_thread =
 		CreateThread(NULL, 0, init_hooks, config_path, 0, NULL);
 	obs_register_source(&game_capture_info);
