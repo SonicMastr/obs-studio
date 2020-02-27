@@ -11,6 +11,7 @@ configure_file(
 
 
 set(graphics-hook_HEADERS
+	"${CMAKE_BINARY_DIR}/plugins/win-capture/graphics-hook/config/graphics-hook-config.h"
 	graphics-hook.h
 	graphics-hook-ver.h
 	../graphics-hook-info.h
