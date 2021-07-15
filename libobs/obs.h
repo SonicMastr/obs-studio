@@ -219,6 +219,8 @@ struct obs_source_cea_708 {
 	uint64_t timestamp;
 };
 
+#define OBS_SOURCE_FRAME_LINEAR_ALPHA (1 << 0)
+
 /**
  * Source asynchronous video output structure.  Used with
  * obs_source_output_video to output asynchronous video.  Video is buffered as
@@ -245,6 +247,7 @@ struct obs_source_frame {
 	float color_range_min[3];
 	float color_range_max[3];
 	bool flip;
+	uint8_t flags;
 
 	/* used internally by libobs */
 	volatile long refs;
@@ -264,6 +267,7 @@ struct obs_source_frame2 {
 	float color_range_min[3];
 	float color_range_max[3];
 	bool flip;
+	uint8_t flags;
 };
 
 /** Access to the argc/argv used to start OBS. What you see is what you get. */
@@ -608,6 +612,10 @@ EXPORT void obs_enum_sources(bool (*enum_proc)(void *, obs_source_t *),
 EXPORT void obs_enum_scenes(bool (*enum_proc)(void *, obs_source_t *),
 			    void *param);
 
+/** Enumerates all sources (regardless of type) */
+EXPORT void obs_enum_all_sources(bool (*enum_proc)(void *, obs_source_t *),
+				 void *param);
+
 /** Enumerates outputs */
 EXPORT void obs_enum_outputs(bool (*enum_proc)(void *, obs_output_t *),
 			     void *param);
@@ -942,6 +950,8 @@ EXPORT obs_properties_t *obs_source_properties(const obs_source_t *source);
 
 /** Updates settings for this source */
 EXPORT void obs_source_update(obs_source_t *source, obs_data_t *settings);
+EXPORT void obs_source_reset_settings(obs_source_t *source,
+				      obs_data_t *settings);
 
 /** Renders a video source. */
 EXPORT void obs_source_video_render(obs_source_t *source);
@@ -951,6 +961,9 @@ EXPORT uint32_t obs_source_get_width(obs_source_t *source);
 
 /** Gets the height of a source (if it has video) */
 EXPORT uint32_t obs_source_get_height(obs_source_t *source);
+
+/** Hints whether or not the source will blend texels */
+EXPORT bool obs_source_get_texcoords_centered(obs_source_t *source);
 
 /**
  * If the source is a filter, returns the parent source of the filter.  Only
@@ -1204,6 +1217,10 @@ obs_source_get_monitoring_type(const obs_source_t *source);
  * automatically.  Returns an incremented reference. */
 EXPORT obs_data_t *obs_source_get_private_settings(obs_source_t *item);
 
+EXPORT obs_data_array_t *obs_source_backup_filters(obs_source_t *source);
+EXPORT void obs_source_restore_filters(obs_source_t *source,
+				       obs_data_array_t *array);
+
 /* ------------------------------------------------------------------------- */
 /* Functions used by sources */
 
@@ -1324,9 +1341,6 @@ obs_source_process_filter_begin(obs_source_t *filter,
 EXPORT void obs_source_process_filter_end(obs_source_t *filter,
 					  gs_effect_t *effect, uint32_t width,
 					  uint32_t height);
-EXPORT void obs_source_process_filter_end_srgb(obs_source_t *filter,
-					       gs_effect_t *effect,
-					       uint32_t width, uint32_t height);
 
 /**
  * Draws the filter with a specific technique.
@@ -1339,11 +1353,6 @@ EXPORT void obs_source_process_filter_tech_end(obs_source_t *filter,
 					       gs_effect_t *effect,
 					       uint32_t width, uint32_t height,
 					       const char *tech_name);
-EXPORT void obs_source_process_filter_tech_end_srgb(obs_source_t *filter,
-						    gs_effect_t *effect,
-						    uint32_t width,
-						    uint32_t height,
-						    const char *tech_name);
 
 /** Skips the filter if the filter is invalid and cannot be rendered */
 EXPORT void obs_source_skip_video_filter(obs_source_t *filter);
@@ -1773,6 +1782,13 @@ EXPORT void obs_sceneitem_group_enum_items(obs_sceneitem_t *group,
 
 /** Gets the group from its source, or NULL if not a group */
 EXPORT obs_scene_t *obs_group_from_source(const obs_source_t *source);
+
+static inline obs_scene_t *
+obs_group_or_scene_from_source(const obs_source_t *source)
+{
+	obs_scene_t *s = obs_scene_from_source(source);
+	return s ? s : obs_group_from_source(source);
+}
 
 EXPORT void obs_sceneitem_defer_group_resize_begin(obs_sceneitem_t *item);
 EXPORT void obs_sceneitem_defer_group_resize_end(obs_sceneitem_t *item);

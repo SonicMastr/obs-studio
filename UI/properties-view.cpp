@@ -17,10 +17,12 @@
 #include <QPlainTextEdit>
 #include <QDialogButtonBox>
 #include <QMenu>
+#include <QMessageBox>
 #include <QStackedWidget>
 #include <QDir>
 #include <QGroupBox>
 #include <QObject>
+#include <QDesktopServices>
 #include "double-slider.hpp"
 #include "slider-ignorewheel.hpp"
 #include "spinbox-ignorewheel.hpp"
@@ -393,13 +395,6 @@ void OBSPropertiesView::AddFloat(obs_property_t *prop, QFormLayout *layout,
 	double stepVal = obs_property_float_step(prop);
 	const char *suffix = obs_property_float_suffix(prop);
 
-	spin->setMinimum(minVal);
-	spin->setMaximum(maxVal);
-	spin->setSingleStep(stepVal);
-	spin->setValue(val);
-	spin->setToolTip(QT_UTF8(obs_property_long_description(prop)));
-	spin->setSuffix(QT_UTF8(suffix));
-
 	if (stepVal < 1.0) {
 		int decimals = (int)(log10(1.0 / stepVal) + 0.99);
 		constexpr int sane_limit = 8;
@@ -407,6 +402,13 @@ void OBSPropertiesView::AddFloat(obs_property_t *prop, QFormLayout *layout,
 		if (decimals > spin->decimals())
 			spin->setDecimals(decimals);
 	}
+
+	spin->setMinimum(minVal);
+	spin->setMaximum(maxVal);
+	spin->setSingleStep(stepVal);
+	spin->setValue(val);
+	spin->setToolTip(QT_UTF8(obs_property_long_description(prop)));
+	spin->setSuffix(QT_UTF8(suffix));
 
 	WidgetInfo *info = new WidgetInfo(this, prop, spin);
 	children.emplace_back(info);
@@ -1881,6 +1883,30 @@ void WidgetInfo::EditableListChanged()
 
 void WidgetInfo::ButtonClicked()
 {
+	obs_button_type type = obs_property_button_type(property);
+	const char *savedUrl = obs_property_button_url(property);
+
+	if (type == OBS_BUTTON_URL && strcmp(savedUrl, "") != 0) {
+		QUrl url(savedUrl, QUrl::StrictMode);
+		if (url.isValid() && (url.scheme().compare("http") == 0 ||
+				      url.scheme().compare("https") == 0)) {
+			QString msg(
+				QTStr("Basic.PropertiesView.UrlButton.Text"));
+			msg += "\n\n";
+			msg += QString(QTStr("Basic.PropertiesView.UrlButton.Text.Url"))
+				       .arg(savedUrl);
+
+			QMessageBox::StandardButton button = OBSMessageBox::question(
+				view->window(),
+				QTStr("Basic.PropertiesView.UrlButton.OpenUrl"),
+				msg, QMessageBox::Yes | QMessageBox::No,
+				QMessageBox::No);
+
+			if (button == QMessageBox::Yes)
+				QDesktopServices::openUrl(url);
+		}
+		return;
+	}
 	if (obs_property_button_clicked(property, view->obj)) {
 		QMetaObject::invokeMethod(view, "RefreshProperties",
 					  Qt::QueuedConnection);

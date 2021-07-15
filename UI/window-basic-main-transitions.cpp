@@ -415,10 +415,8 @@ void OBSBasic::TransitionToScene(OBSSource source, bool force,
 		}
 
 		if (black && !prevFTBSource) {
+			prevFTBSource = source;
 			source = nullptr;
-			prevFTBSource =
-				obs_transition_get_active_source(transition);
-			obs_source_release(prevFTBSource);
 		} else if (black && prevFTBSource) {
 			source = prevFTBSource;
 			prevFTBSource = nullptr;
@@ -731,10 +729,11 @@ void OBSBasic::SetCurrentScene(OBSSource scene, bool force)
 				obs_source_inc_showing(scene);
 			if (actualLastScene)
 				obs_source_dec_showing(actualLastScene);
+			lastScene = OBSGetWeakRef(scene);
 		}
 	}
 
-	if (OBSGetStrongRef(lastScene) != scene) {
+	if (obs_scene_get_source(GetCurrentScene()) != scene) {
 		for (int i = 0; i < ui->scenes->count(); i++) {
 			QListWidgetItem *item = ui->scenes->item(i);
 			OBSScene itemScene = GetOBSRef<OBSScene>(item);
@@ -750,16 +749,16 @@ void OBSBasic::SetCurrentScene(OBSSource scene, bool force)
 				break;
 			}
 		}
+	}
 
-		lastScene = OBSGetWeakRef(scene);
+	UpdateContextBar(true);
 
+	if (scene) {
 		bool userSwitched = (!force && !disableSaving);
 		blog(LOG_INFO, "%s to scene '%s'",
 		     userSwitched ? "User switched" : "Switched",
 		     obs_source_get_name(scene));
 	}
-
-	UpdateContextBar(true);
 }
 
 void OBSBasic::CreateProgramDisplay()
@@ -1236,8 +1235,7 @@ QMenu *OBSBasic::CreateVisibilityTransitionMenu(bool visible)
 					.arg(obs_source_get_name(
 						obs_sceneitem_get_source(
 							sceneItem))),
-				undo_redo, undo_redo, undo_data, redo_data,
-				NULL);
+				undo_redo, undo_redo, undo_data, redo_data);
 		obs_data_release(newTransitionData);
 		obs_data_release(oldTransitionData);
 	};
@@ -1559,6 +1557,14 @@ void OBSBasic::EnableTransitionWidgets(bool enable)
 {
 	ui->transitions->setEnabled(enable);
 
+	if (!enable) {
+		ui->transitionProps->setEnabled(false);
+	} else {
+		bool configurable =
+			obs_source_configurable(GetCurrentTransition());
+		ui->transitionProps->setEnabled(configurable);
+	}
+
 	if (!IsPreviewProgramMode())
 		return;
 
@@ -1680,10 +1686,12 @@ void OBSBasic::SetPreviewProgramMode(bool enabled)
 			OBSSource actualLastScene = OBSGetStrongRef(lastScene);
 			if (actualLastScene)
 				obs_source_dec_showing(actualLastScene);
+			lastScene = nullptr;
 		}
 
 		programScene = nullptr;
 		swapScene = nullptr;
+		prevFTBSource = nullptr;
 
 		for (QuickTransition &qt : quickTransitions)
 			qt.button = nullptr;
