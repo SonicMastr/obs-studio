@@ -11,19 +11,16 @@ struct ScopeProfiler {
 	~ScopeProfiler() { Stop(); }
 
 	ScopeProfiler(const ScopeProfiler &) = delete;
-	ScopeProfiler(ScopeProfiler &&other)
-		: name(other.name), enabled(other.enabled)
-	{
-		other.enabled = false;
-	}
+	ScopeProfiler(ScopeProfiler &&other) : name(other.name), enabled(other.enabled) { other.enabled = false; }
 
 	ScopeProfiler &operator=(const ScopeProfiler &) = delete;
 	ScopeProfiler &operator=(ScopeProfiler &&other) = delete;
 
 	void Stop()
 	{
-		if (!enabled)
+		if (!enabled) {
 			return;
+		}
 
 		profile_end(name);
 		enabled = false;
@@ -41,7 +38,10 @@ struct ScopeProfiler {
 #define ScopeProfiler_Name(x) ScopeProfiler_NameConcat(x, __LINE__)
 #endif
 
-#define ProfileScope(x) \
-	ScopeProfiler ScopeProfiler_Name(SCOPE_PROFILE) { x }
+#define ProfileScope(x)                                 \
+	ScopeProfiler ScopeProfiler_Name(SCOPE_PROFILE) \
+	{                                               \
+		x                                       \
+	}
 
 #endif

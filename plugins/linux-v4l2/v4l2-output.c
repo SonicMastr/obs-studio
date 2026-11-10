@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 #include <obs-module.h>
 #include <util/dstr.h>
 #include <util/platform.h>
@@ -5,13 +7,15 @@
 #include <sys/ioctl.h>
 #include <fcntl.h>
 #include <unistd.h>
-
-#define MAX_DEVICES 64
+#include <dirent.h>
+#include <errno.h>
+#include <string.h>
 
 struct virtualcam_data {
 	obs_output_t *output;
 	int device;
 	uint32_t frame_size;
+	bool use_caps_workaround;
 };
 
 static const char *virtualcam_name(void *unused)
@@ -23,10 +27,14 @@ static const char *virtualcam_name(void *unused)
 static void virtualcam_destroy(void *data)
 {
 	struct virtualcam_data *vcam = (struct virtualcam_data *)data;
-	close(vcam->device);
+
+	if (vcam->device >= 0)
+		close(vcam->device);
+
 	bfree(data);
 }
 
+#if defined(__linux__)
 static bool is_flatpak_sandbox(void)
 {
 	static bool flatpak_info_exists = false;
@@ -74,8 +82,7 @@ static bool loopback_module_loaded()
 		}
 	}
 
-	if (fp)
-		fclose(fp);
+	fclose(fp);
 
 	return loaded;
 }
@@ -98,22 +105,49 @@ static int loopback_module_load()
 	return run_command(
 		"pkexec modprobe v4l2loopback exclusive_caps=1 card_label='OBS Virtual Camera' && sleep 0.5");
 }
+#else
+bool loopback_module_available()
+{
+	struct v4l2_capability capability;
+	char new_device[16];
+	int fd;
+	int i;
+
+	for (i = 0; i != 32; i++) {
+		snprintf(new_device, 16, "/dev/video%d", i);
+		fd = open(new_device, O_RDWR);
+		if (fd < 0)
+			continue;
+		if (ioctl(fd, VIDIOC_QUERYCAP, &capability) < 0) {
+			close(fd);
+			continue;
+		}
+		if (capability.capabilities & V4L2_CAP_VIDEO_OUTPUT) {
+			close(fd);
+			return true;
+		}
+		close(fd);
+	}
+	return false;
+}
+#endif
 
 static void *virtualcam_create(obs_data_t *settings, obs_output_t *output)
 {
-	struct virtualcam_data *vcam =
-		(struct virtualcam_data *)bzalloc(sizeof(*vcam));
+	struct virtualcam_data *vcam = (struct virtualcam_data *)bzalloc(sizeof(*vcam));
 	vcam->output = output;
+	vcam->device = -1;
 
 	UNUSED_PARAMETER(settings);
 	return vcam;
 }
 
-static bool try_connect(void *data, int device)
+static bool try_connect(void *data, const char *device)
 {
+	static bool use_caps_workaround = false;
 	struct virtualcam_data *vcam = (struct virtualcam_data *)data;
-	struct v4l2_format format;
 	struct v4l2_capability capability;
+	struct v4l2_format format;
 	struct v4l2_streamparm parm;
 
 	uint32_t width = obs_output_get_width(vcam->output);
@@ -121,23 +155,21 @@ static bool try_connect(void *data, int device)
 
 	vcam->frame_size = width * height * 2;
 
-	char new_device[16];
-	if (device < 0 || device >= MAX_DEVICES)
-		return false;
-	snprintf(new_device, 16, "/dev/video%d", device);
-
-	vcam->device = open(new_device, O_RDWR);
+	vcam->device = open(device, O_RDWR);
 
 	if (vcam->device < 0)
 		return false;
 
 	if (ioctl(vcam->device, VIDIOC_QUERYCAP, &capability) < 0)
-		return false;
+		goto fail_close_device;
+
+	if (!(capability.device_caps & V4L2_CAP_VIDEO_OUTPUT))
+		goto fail_close_device;
 
 	format.type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
 
 	if (ioctl(vcam->device, VIDIOC_G_FMT, &format) < 0)
-		return false;
+		goto fail_close_device;
 
 	struct obs_video_info ovi;
 	obs_get_video_info(&ovi);
@@ -150,7 +182,7 @@ static bool try_connect(void *data, int device)
 	parm.parm.output.timeperframe.denominator = ovi.fps_num;
 
 	if (ioctl(vcam->device, VIDIOC_S_PARM, &parm) < 0)
-		return false;
+		goto fail_close_device;
 
 	format.fmt.pix.width = width;
 	format.fmt.pix.height = height;
@@ -158,7 +190,13 @@ static bool try_connect(void *data, int device)
 	format.fmt.pix.sizeimage = vcam->frame_size;
 
 	if (ioctl(vcam->device, VIDIOC_S_FMT, &format) < 0)
-		return false;
+		goto fail_close_device;
+
+	if (!use_caps_workaround && ioctl(vcam->device, VIDIOC_STREAMON, &format.type) == 0) {
+		/* STREAMON should error on all devices except v4l2loopback 0.12.x-0.13.x */
+		use_caps_workaround = true;
+	}
+	vcam->use_caps_workaround = use_caps_workaround;
 
 	struct video_scale_info vsi = {0};
 	vsi.format = VIDEO_FORMAT_YUY2;
@@ -166,38 +204,98 @@ static bool try_connect(void *data, int device)
 	vsi.height = height;
 	obs_output_set_video_conversion(vcam->output, &vsi);
 
+	memset(&parm, 0, sizeof(parm));
+	parm.type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
+
+	if (vcam->use_caps_workaround && ioctl(vcam->device, VIDIOC_STREAMON, &format.type) < 0) {
+		blog(LOG_ERROR, "Failed to start streaming on '%s' (%s)", device, strerror(errno));
+		goto fail_close_device;
+	}
+
 	blog(LOG_INFO, "Virtual camera started");
 	obs_output_begin_data_capture(vcam->output, 0);
 
 	return true;
+
+fail_close_device:
+	close(vcam->device);
+	vcam->device = -1;
+	return false;
+}
+
+static int scanfilter(const struct dirent *entry)
+{
+	return !astrcmp_n(entry->d_name, "video", 5);
 }
 
 static bool virtualcam_start(void *data)
 {
 	struct virtualcam_data *vcam = (struct virtualcam_data *)data;
+	struct dirent **list;
+	bool success = false;
+	int n;
 
+#if defined(__linux__)
 	if (!loopback_module_loaded()) {
 		if (loopback_module_load() != 0)
 			return false;
 	}
+#endif
 
-	for (int i = 0; i < MAX_DEVICES; i++) {
-		if (!try_connect(vcam, i))
+	n = scandir("/dev", &list, scanfilter,
+#if defined(__linux__)
+		    versionsort
+#else
+		    alphasort
+#endif
+	);
+
+	if (n == -1)
+		return false;
+
+	for (int i = 0; i < n; i++) {
+		char device[32] = {0};
+
+#if !defined(__linux__)
+		if (strstr(list[i]->d_name, "video") != list[i]->d_name)
 			continue;
-		else
-			return true;
+#endif
+
+		// Use the return value of snprintf to prevent truncation warning.
+		int written = snprintf(device, 32, "/dev/%s", list[i]->d_name);
+		if (written >= 32)
+			blog(LOG_DEBUG, "v4l2-output: A format truncation may have occurred."
+					" This can be ignored since it is quite improbable.");
+
+		if (try_connect(vcam, device)) {
+			success = true;
+			break;
+		}
 	}
 
-	blog(LOG_WARNING, "Failed to start virtual camera");
-	return false;
+	while (n--)
+		free(list[n]);
+	free(list);
+
+	if (!success)
+		blog(LOG_WARNING, "Failed to start virtual camera");
+
+	return success;
 }
 
 static void virtualcam_stop(void *data, uint64_t ts)
 {
 	struct virtualcam_data *vcam = (struct virtualcam_data *)data;
 	obs_output_end_data_capture(vcam->output);
-	close(vcam->device);
 
+	uint32_t buf_type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
+
+	if (vcam->use_caps_workaround && ioctl(vcam->device, VIDIOC_STREAMOFF, &buf_type) < 0) {
+		blog(LOG_WARNING, "Failed to stop streaming on video device %d (%s)", vcam->device, strerror(errno));
+	}
+
+	close(vcam->device);
+	vcam->device = -1;
 	blog(LOG_INFO, "Virtual camera stopped");
 
 	UNUSED_PARAMETER(ts);
@@ -208,8 +306,7 @@ static void virtual_video(void *param, struct video_data *frame)
 	struct virtualcam_data *vcam = (struct virtualcam_data *)param;
 	uint32_t frame_size = vcam->frame_size;
 	while (frame_size > 0) {
-		ssize_t written =
-			write(vcam->device, frame->data[0], vcam->frame_size);
+		ssize_t written = write(vcam->device, frame->data[0], vcam->frame_size);
 		if (written == -1)
 			break;
 		frame_size -= written;

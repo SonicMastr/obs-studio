@@ -14,9 +14,7 @@ static inline void decode_dstr(struct dstr *str)
 	dstr_replace(str, "#22", "#");
 }
 
-static inline void EncodeDeviceId(struct dstr *encodedStr,
-				  const wchar_t *name_str,
-				  const wchar_t *path_str)
+static inline void EncodeDeviceId(struct dstr *encodedStr, const wchar_t *name_str, const wchar_t *path_str)
 {
 	DStr name;
 	DStr path;
@@ -32,17 +30,18 @@ static inline void EncodeDeviceId(struct dstr *encodedStr,
 	dstr_cat_dstr(encodedStr, path);
 }
 
-static inline bool DecodeDeviceDStr(DStr &name, DStr &path,
-				    const char *device_id)
+static inline bool DecodeDeviceDStr(DStr &name, DStr &path, const char *device_id)
 {
 	const char *path_str;
 
-	if (!device_id || !*device_id)
+	if (!device_id || !*device_id) {
 		return false;
+	}
 
 	path_str = strchr(device_id, ':');
-	if (!path_str)
+	if (!path_str) {
 		return false;
+	}
 
 	dstr_copy(path, path_str + 1);
 	dstr_copy(name, device_id);
@@ -61,8 +60,9 @@ static inline bool DecodeDeviceId(DShow::DeviceId &out, const char *device_id)
 {
 	DStr name, path;
 
-	if (!DecodeDeviceDStr(name, path, device_id))
+	if (!DecodeDeviceDStr(name, path, device_id)) {
 		return false;
+	}
 
 	BPtr<wchar_t> wname = dstr_to_wcs(name);
 	out.name = wname;

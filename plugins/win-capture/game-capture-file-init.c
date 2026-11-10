@@ -19,9 +19,8 @@ static bool has_elevation_internal()
 	BOOL elevated = false;
 	BOOL success;
 
-	success = AllocateAndInitializeSid(&sia, 2, SECURITY_BUILTIN_DOMAIN_RID,
-					   DOMAIN_ALIAS_RID_ADMINS, 0, 0, 0, 0,
-					   0, 0, &sid);
+	success = AllocateAndInitializeSid(&sia, 2, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_ADMINS, 0, 0, 0, 0, 0,
+					   0, &sid);
 	if (success && sid) {
 		CheckTokenMembership(NULL, sid, &elevated);
 		FreeSid(sid);
@@ -52,9 +51,8 @@ static bool add_aap_perms(const wchar_t *dir)
 	bool success = false;
 
 	PACL dacl;
-	if (GetNamedSecurityInfoW(dir, SE_FILE_OBJECT,
-				  DACL_SECURITY_INFORMATION, NULL, NULL, &dacl,
-				  NULL, &sd) != ERROR_SUCCESS) {
+	if (GetNamedSecurityInfoW(dir, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL, &dacl, NULL, &sd) !=
+	    ERROR_SUCCESS) {
 		goto fail;
 	}
 
@@ -72,8 +70,7 @@ static bool add_aap_perms(const wchar_t *dir)
 		goto fail;
 	}
 
-	ea.grfAccessPermissions = GENERIC_READ | GENERIC_WRITE |
-				  GENERIC_EXECUTE;
+	ea.grfAccessPermissions = GENERIC_READ | GENERIC_WRITE | GENERIC_EXECUTE;
 
 	/* BUILTIN_USERS */
 	ConvertStringSidToSidW(L"S-1-5-32-545", &bu_sid);
@@ -84,9 +81,8 @@ static bool add_aap_perms(const wchar_t *dir)
 		goto fail;
 	}
 
-	if (SetNamedSecurityInfoW((wchar_t *)dir, SE_FILE_OBJECT,
-				  DACL_SECURITY_INFORMATION, NULL, NULL,
-				  new_dacl2, NULL) != ERROR_SUCCESS) {
+	if (SetNamedSecurityInfoW((wchar_t *)dir, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL, new_dacl2,
+				  NULL) != ERROR_SUCCESS) {
 		goto fail;
 	}
 
@@ -125,19 +121,17 @@ static LSTATUS get_reg(HKEY hkey, LPCWSTR sub_key, LPCWSTR value_name, bool b64)
 
 	status = RegOpenKeyEx(hkey, sub_key, 0, KEY_READ | flags, &key);
 	if (status == ERROR_SUCCESS) {
-		status = RegQueryValueExW(key, value_name, NULL, NULL,
-					  (LPBYTE)&val, &size);
+		status = RegQueryValueExW(key, value_name, NULL, NULL, (LPBYTE)&val, &size);
 		RegCloseKey(key);
 	}
 	return status;
 }
 
-#define get_programdata_path(path, subpath)                        \
-	do {                                                       \
-		SHGetFolderPathW(NULL, CSIDL_COMMON_APPDATA, NULL, \
-				 SHGFP_TYPE_CURRENT, path);        \
-		StringCbCatW(path, sizeof(path), L"\\");           \
-		StringCbCatW(path, sizeof(path), subpath);         \
+#define get_programdata_path(path, subpath)                                                   \
+	do {                                                                                  \
+		SHGetFolderPathW(NULL, CSIDL_COMMON_APPDATA, NULL, SHGFP_TYPE_CURRENT, path); \
+		StringCbCatW(path, sizeof(path), L"\\");                                      \
+		StringCbCatW(path, sizeof(path), subpath);                                    \
 	} while (false)
 
 #define make_filename(str, name, ext)                                \
@@ -160,21 +154,22 @@ char *get_hook_path(bool b64)
 	get_programdata_path(path, L"obs-studio-hook\\");
 	make_filename(path, L"graphics-hook", L".dll");
 
-	if ((b64 && programdata64_hook_exists) ||
-	    (!b64 && programdata32_hook_exists)) {
+	if ((b64 && programdata64_hook_exists) || (!b64 && programdata32_hook_exists)) {
 		char *path_utf8 = NULL;
 		os_wcs_to_utf8_ptr(path, 0, &path_utf8);
 		return path_utf8;
 	}
 
-	return obs_module_file(b64 ? "graphics-hook64.dll"
-				   : "graphics-hook32.dll");
+	return obs_module_file(b64 ? "graphics-hook64.dll" : "graphics-hook32.dll");
 }
 
 /* ------------------------------------------------------------------------- */
 /* initialization                                                            */
 
 #define IMPLICIT_LAYERS L"SOFTWARE\\Khronos\\Vulkan\\ImplicitLayers"
+
+#undef warn
+#define warn(format, ...) blog(LOG_WARNING, "update_hook_file: " format, ##__VA_ARGS__)
 
 static bool update_hook_file(bool b64)
 {
@@ -184,21 +179,21 @@ static bool update_hook_file(bool b64)
 	wchar_t src_json[MAX_PATH];
 	wchar_t dst_json[MAX_PATH];
 
-	StringCbCopyW(temp, sizeof(temp),
-		      L"..\\..\\data\\obs-plugins\\"
-		      L"win-capture\\");
+	StringCbCopyW(temp, sizeof(temp), L"..\\..\\core\\win-capture\\data\\");
 	make_filename(temp, L"obs-vulkan", L".json");
 
-	if (_wfullpath(src_json, temp, MAX_PATH) == NULL)
+	if (_wfullpath(src_json, temp, MAX_PATH) == NULL) {
+		warn("failed to get full path for %ls", temp);
 		return false;
+	}
 
-	StringCbCopyW(temp, sizeof(temp),
-		      L"..\\..\\data\\obs-plugins\\"
-		      L"win-capture\\");
+	StringCbCopyW(temp, sizeof(temp), L"..\\..\\core\\win-capture\\data\\");
 	make_filename(temp, L"graphics-hook", L".dll");
 
-	if (_wfullpath(src, temp, MAX_PATH) == NULL)
+	if (_wfullpath(src, temp, MAX_PATH) == NULL) {
+		warn("failed to get full path for %ls", temp);
 		return false;
+	}
 
 	get_programdata_path(temp, L"obs-studio-hook\\");
 	StringCbCopyW(dst_json, sizeof(dst_json), temp);
@@ -207,19 +202,31 @@ static bool update_hook_file(bool b64)
 	make_filename(dst, L"graphics-hook", L".dll");
 
 	if (!file_exists(src)) {
+		warn("source graphics-hook%d.dll missing", b64 ? 64 : 32);
 		return false;
 	}
 	if (!file_exists(src_json)) {
+		warn("source obs-vulkan%d.json missing", b64 ? 64 : 32);
 		return false;
 	}
 	if (!file_exists(dst) || !file_exists(dst_json)) {
-		CreateDirectoryW(temp, NULL);
+		if (!CreateDirectoryW(temp, NULL)) {
+			DWORD err = GetLastError();
+			if (err != ERROR_ALREADY_EXISTS) {
+				warn("failed to create directory %ls (%lu)", temp, err);
+				return false;
+			}
+		}
 		if (has_elevation())
 			add_aap_perms(temp);
-		if (!CopyFileW(src_json, dst_json, false))
+		if (!CopyFileW(src_json, dst_json, false)) {
+			warn("failed to install %ls (%lu)", dst_json, GetLastError());
 			return false;
-		if (!CopyFileW(src, dst, false))
+		}
+		if (!CopyFileW(src, dst, false)) {
+			warn("failed to install %ls (%lu)", dst, GetLastError());
 			return false;
+		}
 		return true;
 	}
 
@@ -228,35 +235,46 @@ static bool update_hook_file(bool b64)
 
 	struct win_version_info ver_src = {0};
 	struct win_version_info ver_dst = {0};
-	if (!get_dll_ver(src, &ver_src))
+	if (!get_dll_ver(src, &ver_src)) {
+		warn("failed to get version of source");
 		return false;
+	}
 #ifndef _DEBUG
-	if (!get_dll_ver(dst, &ver_dst))
+	if (!get_dll_ver(dst, &ver_dst)) {
+		warn("failed to get version of %ls", dst);
 		return false;
+	}
 #endif
 
 	/* if source is greater than dst, overwrite new file  */
 	while (win_version_compare(&ver_dst, &ver_src) < 0) {
-		if (!CopyFileW(src_json, dst_json, false))
+		if (!CopyFileW(src_json, dst_json, false)) {
+			warn("failed to update %ls (%lu)", dst_json, GetLastError());
 			return false;
-		if (!CopyFileW(src, dst, false))
+		}
+		if (!CopyFileW(src, dst, false)) {
+			warn("failed to update %ls (%lu)", dst, GetLastError());
 			return false;
+		}
 
-		if (!get_dll_ver(dst, &ver_dst))
+		if (!get_dll_ver(dst, &ver_dst)) {
+			warn("failed to get version of %ls", dst);
 			return false;
+		}
 	}
 
 	/* do not use if major version incremented in target compared to
 	 * ours */
 	if (ver_dst.major > ver_src.major) {
+		warn("target %ls has major version %d, source has major version %d", dst, ver_dst.major, ver_src.major);
 		return false;
 	}
 
 	return true;
 }
 
-#define warn(format, ...) \
-	blog(LOG_WARNING, "%s: " format, "[Vulkan Capture Init]", ##__VA_ARGS__)
+#undef warn
+#define warn(format, ...) blog(LOG_WARNING, "[Vulkan Capture Init]: " format, ##__VA_ARGS__)
 
 /* Sets vulkan layer registry if it doesn't already exist */
 static void init_vulkan_registry(bool b64)
@@ -280,8 +298,7 @@ static void init_vulkan_registry(bool b64)
 		}
 
 		if (s == ERROR_SUCCESS && has_elevation()) {
-			s = RegOpenKeyEx(HKEY_CURRENT_USER, IMPLICIT_LAYERS, 0,
-					 KEY_WRITE | flags, &key);
+			s = RegOpenKeyEx(HKEY_CURRENT_USER, IMPLICIT_LAYERS, 0, KEY_WRITE | flags, &key);
 			if (s == ERROR_SUCCESS) {
 				RegDeleteValueW(key, path);
 				RegCloseKey(key);
@@ -301,16 +318,14 @@ static void init_vulkan_registry(bool b64)
 	HKEY type = has_elevation() ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER;
 	DWORD temp;
 
-	s = RegCreateKeyExW(type, IMPLICIT_LAYERS, 0, NULL, 0,
-			    KEY_WRITE | flags, NULL, &key, &temp);
+	s = RegCreateKeyExW(type, IMPLICIT_LAYERS, 0, NULL, 0, KEY_WRITE | flags, NULL, &key, &temp);
 	if (s != ERROR_SUCCESS) {
 		warn("Failed to create registry key");
 		goto finish;
 	}
 
 	DWORD zero = 0;
-	s = RegSetValueExW(key, path, 0, REG_DWORD, (const BYTE *)&zero,
-			   sizeof(zero));
+	s = RegSetValueExW(key, path, 0, REG_DWORD, (const BYTE *)&zero, sizeof(zero));
 	if (s != ERROR_SUCCESS) {
 		warn("Failed to set registry value");
 	}

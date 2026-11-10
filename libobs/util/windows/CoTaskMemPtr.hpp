@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014 Hugh Bailey <obs.jim@gmail.com>
+ * Copyright (c) 2023 Lain Bailey <lain@obsproject.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -21,8 +21,9 @@ template<typename T> class CoTaskMemPtr {
 
 	inline void Clear()
 	{
-		if (ptr)
+		if (ptr) {
 			CoTaskMemFree(ptr);
+		}
 	}
 
 public:

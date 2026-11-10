@@ -24,40 +24,38 @@ string GetDeviceName(IMMDevice *device)
 			size_t len = wcslen(nameVar.pwszVal);
 			size_t size;
 
-			size = os_wcs_to_utf8(nameVar.pwszVal, len, nullptr,
-					      0) +
-			       1;
+			size = os_wcs_to_utf8(nameVar.pwszVal, len, nullptr, 0) + 1;
 			device_name.resize(size);
-			os_wcs_to_utf8(nameVar.pwszVal, len, &device_name[0],
-				       size);
+			os_wcs_to_utf8(nameVar.pwszVal, len, &device_name[0], size);
+			PropVariantClear(&nameVar);
 		}
 	}
 
 	return device_name;
 }
 
-void GetWASAPIAudioDevices_(vector<AudioDeviceInfo> &devices, bool input)
+static void GetWASAPIAudioDevices_(vector<AudioDeviceInfo> &devices, bool input)
 {
 	ComPtr<IMMDeviceEnumerator> enumerator;
 	ComPtr<IMMDeviceCollection> collection;
 	UINT count;
 	HRESULT res;
 
-	res = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL,
-			       __uuidof(IMMDeviceEnumerator),
+	res = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator),
 			       (void **)enumerator.Assign());
-	if (FAILED(res))
+	if (FAILED(res)) {
 		throw HRError("Failed to create enumerator", res);
+	}
 
-	res = enumerator->EnumAudioEndpoints(input ? eCapture : eRender,
-					     DEVICE_STATE_ACTIVE,
-					     collection.Assign());
-	if (FAILED(res))
+	res = enumerator->EnumAudioEndpoints(input ? eCapture : eRender, DEVICE_STATE_ACTIVE, collection.Assign());
+	if (FAILED(res)) {
 		throw HRError("Failed to enumerate devices", res);
+	}
 
 	res = collection->GetCount(&count);
-	if (FAILED(res))
+	if (FAILED(res)) {
 		throw HRError("Failed to get device count", res);
+	}
 
 	for (UINT i = 0; i < count; i++) {
 		ComPtr<IMMDevice> device;
@@ -66,12 +64,14 @@ void GetWASAPIAudioDevices_(vector<AudioDeviceInfo> &devices, bool input)
 		size_t len, size;
 
 		res = collection->Item(i, device.Assign());
-		if (FAILED(res))
+		if (FAILED(res)) {
 			continue;
+		}
 
 		res = device->GetId(&w_id);
-		if (FAILED(res) || !w_id || !*w_id)
+		if (FAILED(res) || !w_id || !*w_id) {
 			continue;
+		}
 
 		info.name = GetDeviceName(device);
 
@@ -92,7 +92,6 @@ void GetWASAPIAudioDevices(vector<AudioDeviceInfo> &devices, bool input)
 		GetWASAPIAudioDevices_(devices, input);
 
 	} catch (HRError &error) {
-		blog(LOG_WARNING, "[GetWASAPIAudioDevices] %s: %lX", error.str,
-		     error.hr);
+		blog(LOG_WARNING, "[GetWASAPIAudioDevices] %s: %lX", error.str, error.hr);
 	}
 }

@@ -1,93 +1,124 @@
-option(DISABLE_PLUGINS "Disable building of OBS plugins" OFF)
-if(DISABLE_PLUGINS)
-	message(STATUS "DISABLE_PLUGINS is set; building of plugins is disabled.")
-	return()
+cmake_minimum_required(VERSION 3.28...3.30)
+
+if(NOT TARGET libobs)
+  message(FATAL_ERROR "OBS Core modules require 'libobs' target.")
 endif()
 
-if(WIN32)
-	option(BUILD_CA_ENCODER "Build CoreAudio encoder module" ON)
-	if (BUILD_CA_ENCODER)
-		add_subdirectory(coreaudio-encoder)
-	endif()
-	add_subdirectory(win-wasapi)
-	add_subdirectory(win-dshow)
-	add_subdirectory(win-capture)
-	add_subdirectory(decklink/win)
-	add_subdirectory(win-mf)
-	add_subdirectory(obs-qsv11)
-	add_subdirectory(vlc-video)
-	if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/enc-amf/CMakeLists.txt")
-		add_subdirectory(enc-amf)
-	else()
-		message(STATUS "enc-amf submodule not found!  Please fetch submodules.  enc-amf plugin disabled.")
-	endif()
-	if (MSVC)
-		add_subdirectory(win-ivcam)
-	endif()
-elseif(APPLE)
-	add_subdirectory(coreaudio-encoder)
-	add_subdirectory(mac-avcapture)
-	add_subdirectory(mac-capture)
-	add_subdirectory(mac-vth264)
-	add_subdirectory(mac-syphon)
-	option(BUILD_VIRTUALCAM "Build Virtualcam" ON)
-	if(BUILD_VIRTUALCAM)
-		add_subdirectory(mac-virtualcam)
-	endif()
-	add_subdirectory(decklink/mac)
-	add_subdirectory(vlc-video)
-	add_subdirectory(linux-jack)
-elseif("${CMAKE_SYSTEM_NAME}" MATCHES "Linux")
-	add_subdirectory(linux-capture)
-	add_subdirectory(linux-pulseaudio)
-	add_subdirectory(linux-v4l2)
-	add_subdirectory(linux-jack)
-	add_subdirectory(linux-alsa)
-	add_subdirectory(decklink/linux)
-	add_subdirectory(vlc-video)
-	add_subdirectory(sndio)
-elseif("${CMAKE_SYSTEM_NAME}" MATCHES "FreeBSD")
-	add_subdirectory(linux-capture)
-	add_subdirectory(linux-pulseaudio)
-	add_subdirectory(linux-v4l2)
-	add_subdirectory(linux-jack)
-	add_subdirectory(linux-alsa)
-	add_subdirectory(vlc-video)
-	add_subdirectory(oss-audio)
-	add_subdirectory(sndio)
-elseif("${CMAKE_SYSTEM_NAME}" MATCHES "OpenBSD")
-	add_subdirectory(linux-capture)
-	add_subdirectory(sndio)
+option(ENABLE_CORE_MODULES "Enable building OBS Core Modules" ON)
+set_property(GLOBAL PROPERTY ENABLE_PLUGINS ${ENABLE_CORE_MODULES})
+
+# FIXME: Remove with OBS 34.0.0
+if(DEFINED ENABLE_PLUGINS)
+  message(DEPRECATION "The ENABLE_PLUGINS cache variable is deprecated, use 'ENABLE_CORE_MODULES' instead")
+  set(ENABLE_CORE_MODULES ${ENABLE_PLUGINS})
 endif()
 
-option(BUILD_BROWSER "Build browser plugin" ON)
-if (BUILD_BROWSER)
-	if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/obs-browser/CMakeLists.txt")
-		add_subdirectory(obs-browser)
-		set(BROWSER_AVAILABLE_INTERNAL ON CACHE BOOL "Internal global cmake variable" FORCE)
-	else()
-		message(FATAL_ERROR "obs-browser submodule not found! Please fetch submodules or set BUILD_BROWSER=OFF.")
-	endif()
-else()
-	set(BROWSER_AVAILABLE_INTERNAL OFF CACHE BOOL "Internal global cmake variable" FORCE)
+if(NOT ENABLE_CORE_MODULES)
+  set_property(GLOBAL APPEND PROPERTY OBS_FEATURES_DISABLED "Core Modules")
+  set_obs_core_modules()
+  return()
 endif()
 
-option(BUILD_VST "Build VST plugin" ON)
-if(BUILD_VST)
-	if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/obs-vst/CMakeLists.txt")
-		add_subdirectory(obs-vst)
-	else()
-		message(FATAL_ERROR "obs-vst submodule not found! Please fetch submodules or set BUILD_VST=OFF.")
-	endif()
-endif()
+set_property(GLOBAL APPEND PROPERTY OBS_FEATURES_ENABLED "Core Modules")
 
-add_subdirectory(image-source)
-add_subdirectory(obs-x264)
-add_subdirectory(obs-libfdk)
-add_subdirectory(obs-ffmpeg)
-add_subdirectory(obs-outputs)
-add_subdirectory(obs-filters)
-add_subdirectory(obs-transitions)
-add_subdirectory(obs-text)
-add_subdirectory(rtmp-services)
-add_subdirectory(text-freetype2)
+macro(check_obs_browser)
+  if((OS_WINDOWS AND CMAKE_VS_PLATFORM_NAME MATCHES "(ARM64|x64)") OR OS_MACOS OR OS_LINUX)
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/obs-browser/CMakeLists.txt")
+      message(FATAL_ERROR "Required submodule 'obs-browser' not available.")
+    else()
+      add_core_module(obs-browser)
+    endif()
+  else()
+    add_custom_target(obs-browser)
+    target_disable(obs-browser)
+  endif()
+endmacro()
+
+macro(check_obs_websocket)
+  if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/obs-websocket/CMakeLists.txt")
+    message(FATAL_ERROR "Required submodule 'obs-websocket' not available.")
+  else()
+    add_core_module(obs-websocket)
+  endif()
+endmacro()
+
+# Add plugins in alphabetical order to retain order in IDE projects
+add_core_module(
+    aja
+    PLATFORMS WINDOWS MACOS LINUX
+    WITH_MESSAGE
+)
+add_core_module(aja-output-ui PLATFORMS WINDOWS MACOS LINUX WITH_MESSAGE)
+add_core_module(asio-output-ui PLATFORMS WINDOWS WITH_MESSAGE)
+add_core_module(coreaudio-encoder PLATFORMS WINDOWS MACOS)
+add_core_module(
+    decklink
+    PLATFORMS WINDOWS MACOS LINUX
+    WITH_MESSAGE
+)
+add_core_module(
+    decklink-captions
+    PLATFORMS WINDOWS MACOS LINUX
+    WITH_MESSAGE
+)
+add_core_module(
+    decklink-output-ui
+    PLATFORMS WINDOWS MACOS LINUX
+    WITH_MESSAGE
+)
+add_core_module(
+    frontend-tools
+    PLATFORMS WINDOWS MACOS LINUX
+    WITH_MESSAGE
+)
+add_core_module(image-source)
+add_core_module(linux-alsa PLATFORMS LINUX FREEBSD OPENBSD)
+add_core_module(linux-capture PLATFORMS LINUX FREEBSD OPENBSD)
+add_core_module(linux-jack PLATFORMS LINUX FREEBSD OPENBSD)
+add_core_module(linux-pipewire PLATFORMS LINUX FREEBSD OPENBSD)
+add_core_module(linux-pulseaudio PLATFORMS LINUX FREEBSD OPENBSD)
+add_core_module(linux-v4l2 PLATFORMS LINUX FREEBSD OPENBSD)
+add_core_module(mac-avcapture PLATFORMS MACOS)
+add_core_module(mac-capture PLATFORMS MACOS)
+add_core_module(mac-syphon PLATFORMS MACOS)
+add_core_module(mac-videotoolbox PLATFORMS MACOS)
+add_core_module(mac-virtualcam PLATFORMS MACOS)
+add_core_module(nv-filters PLATFORMS WINDOWS)
+
+check_obs_browser()
+
+add_core_module(obs-ffmpeg)
+add_core_module(obs-filters)
+add_core_module(obs-libfdk)
+add_core_module(obs-nvenc PLATFORMS WINDOWS LINUX)
+add_core_module(obs-outputs)
+add_core_module(
+    obs-qsv11
+    PLATFORMS WINDOWS LINUX
+    ARCHITECTURES x64 x86_64
+)
+add_core_module(obs-text PLATFORMS WINDOWS)
+add_core_module(obs-transitions)
+add_core_module(
+    obs-vst
+    PLATFORMS WINDOWS MACOS LINUX
+    WITH_MESSAGE
+)
+add_core_module(obs-vst3 PLATFORMS WINDOWS LINUX ARCHITECTURES x64 x86_64)
+add_core_module(obs-vst3 PLATFORMS MACOS)
+add_core_module(obs-webrtc)
+
+check_obs_websocket()
+
+add_core_module(obs-x264)
+add_core_module(oss-audio PLATFORMS FREEBSD OPENBSD)
+add_core_module(rtmp-services)
+add_core_module(sndio PLATFORMS LINUX FREEBSD OPENBSD)
+add_core_module(text-freetype2)
+add_core_module(vlc-video WITH_MESSAGE)
+add_core_module(win-asio PLATFORMS WINDOWS)
+add_core_module(win-capture PLATFORMS WINDOWS)
+add_core_module(win-dshow PLATFORMS WINDOWS)
+add_core_module(win-wasapi PLATFORMS WINDOWS)
+
+set_obs_core_modules()

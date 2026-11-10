@@ -5,18 +5,21 @@
 
 DeckLinkDeviceDiscovery::DeckLinkDeviceDiscovery()
 {
-	discovery = CreateDeckLinkDiscoveryInstance();
-	if (discovery == nullptr)
+	discovery.Set(CreateDeckLinkDiscoveryInstance());
+	if (discovery == nullptr) {
 		blog(LOG_INFO, "No blackmagic support");
+	}
 }
 
 DeckLinkDeviceDiscovery::~DeckLinkDeviceDiscovery(void)
 {
 	if (discovery != nullptr) {
-		if (initialized)
+		if (initialized) {
 			discovery->UninstallDeviceNotifications();
-		for (DeckLinkDevice *device : devices)
+		}
+		for (DeckLinkDevice *device : devices) {
 			device->Release();
+		}
 	}
 }
 
@@ -24,15 +27,18 @@ bool DeckLinkDeviceDiscovery::Init(void)
 {
 	HRESULT result = E_FAIL;
 
-	if (initialized)
+	if (initialized) {
 		return false;
+	}
 
-	if (discovery != nullptr)
+	if (discovery != nullptr) {
 		result = discovery->InstallDeviceNotifications(this);
+	}
 
 	initialized = result == S_OK;
-	if (!initialized)
+	if (!initialized) {
 		blog(LOG_DEBUG, "Failed to start search for DeckLink devices");
+	}
 
 	return initialized;
 }
@@ -54,8 +60,7 @@ DeckLinkDevice *DeckLinkDeviceDiscovery::FindByHash(const char *hash)
 	return ret;
 }
 
-HRESULT STDMETHODCALLTYPE
-DeckLinkDeviceDiscovery::DeckLinkDeviceArrived(IDeckLink *device)
+HRESULT STDMETHODCALLTYPE DeckLinkDeviceDiscovery::DeckLinkDeviceArrived(IDeckLink *device)
 {
 	DeckLinkDevice *newDev = new DeckLinkDevice(device);
 	if (!newDev->Init()) {
@@ -67,22 +72,23 @@ DeckLinkDeviceDiscovery::DeckLinkDeviceArrived(IDeckLink *device)
 
 	devices.push_back(newDev);
 
-	for (DeviceChangeInfo &cb : callbacks)
+	for (DeviceChangeInfo &cb : callbacks) {
 		cb.callback(cb.param, newDev, true);
+	}
 
 	return S_OK;
 }
 
-HRESULT STDMETHODCALLTYPE
-DeckLinkDeviceDiscovery::DeckLinkDeviceRemoved(IDeckLink *device)
+HRESULT STDMETHODCALLTYPE DeckLinkDeviceDiscovery::DeckLinkDeviceRemoved(IDeckLink *device)
 {
 	std::lock_guard<std::recursive_mutex> lock(deviceMutex);
 
 	for (size_t i = 0; i < devices.size(); i++) {
 		if (devices[i]->IsDevice(device)) {
 
-			for (DeviceChangeInfo &cb : callbacks)
+			for (DeviceChangeInfo &cb : callbacks) {
 				cb.callback(cb.param, devices[i], false);
+			}
 
 			devices[i]->Release();
 			devices.erase(devices.begin() + i);
@@ -97,8 +103,7 @@ ULONG STDMETHODCALLTYPE DeckLinkDeviceDiscovery::AddRef(void)
 	return os_atomic_inc_long(&refCount);
 }
 
-HRESULT STDMETHODCALLTYPE DeckLinkDeviceDiscovery::QueryInterface(REFIID iid,
-								  LPVOID *ppv)
+HRESULT STDMETHODCALLTYPE DeckLinkDeviceDiscovery::QueryInterface(REFIID iid, LPVOID *ppv)
 {
 	HRESULT result = E_NOINTERFACE;
 
@@ -109,8 +114,7 @@ HRESULT STDMETHODCALLTYPE DeckLinkDeviceDiscovery::QueryInterface(REFIID iid,
 		*ppv = this;
 		AddRef();
 		result = S_OK;
-	} else if (memcmp(&iid, &IID_IDeckLinkDeviceNotificationCallback,
-			  sizeof(REFIID)) == 0) {
+	} else if (memcmp(&iid, &IID_IDeckLinkDeviceNotificationCallback, sizeof(REFIID)) == 0) {
 		*ppv = (IDeckLinkDeviceNotificationCallback *)this;
 		AddRef();
 		result = S_OK;

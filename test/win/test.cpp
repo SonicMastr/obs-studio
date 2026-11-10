@@ -47,8 +47,7 @@ public:
 
 /* --------------------------------------------------- */
 
-static LRESULT CALLBACK sceneProc(HWND hwnd, UINT message, WPARAM wParam,
-				  LPARAM lParam)
+static LRESULT CALLBACK sceneProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	switch (message) {
 
@@ -71,8 +70,9 @@ static void do_log(int log_level, const char *msg, va_list args, void *param)
 	OutputDebugStringA(bla);
 	OutputDebugStringA("\n");
 
-	if (log_level < LOG_WARNING)
+	if (log_level < LOG_WARNING) {
 		__debugbreak();
+	}
 
 	UNUSED_PARAMETER(param);
 }
@@ -82,8 +82,9 @@ static void CreateOBS(HWND hwnd)
 	RECT rc;
 	GetClientRect(hwnd, &rc);
 
-	if (!obs_startup("en-US", nullptr, nullptr))
+	if (!obs_startup("en-US", nullptr, nullptr)) {
 		throw "Couldn't create OBS";
+	}
 
 	struct obs_video_info ovi;
 	ovi.adapter = 0;
@@ -96,8 +97,9 @@ static void CreateOBS(HWND hwnd)
 	ovi.output_width = rc.right;
 	ovi.output_height = rc.bottom;
 
-	if (obs_reset_video(&ovi) != 0)
+	if (obs_reset_video(&ovi) != 0) {
 		throw "Couldn't initialize video";
+	}
 }
 
 static DisplayContext CreateDisplay(HWND hwnd)
@@ -137,13 +139,12 @@ static HWND CreateTestWindow(HINSTANCE instance)
 	wc.hCursor = LoadCursor(NULL, IDC_ARROW);
 	wc.lpfnWndProc = (WNDPROC)sceneProc;
 
-	if (!RegisterClass(&wc))
+	if (!RegisterClass(&wc)) {
 		return 0;
+	}
 
-	return CreateWindow(TEXT("bla"), TEXT("bla"),
-			    WS_OVERLAPPEDWINDOW | WS_VISIBLE, 1920 / 2 - cx / 2,
-			    1080 / 2 - cy / 2, cx, cy, NULL, NULL, instance,
-			    NULL);
+	return CreateWindow(TEXT("bla"), TEXT("bla"), WS_OVERLAPPEDWINDOW | WS_VISIBLE, 1920 / 2 - cx / 2,
+			    1080 / 2 - cy / 2, cx, cy, NULL, NULL, instance, NULL);
 }
 
 /* --------------------------------------------------- */
@@ -159,16 +160,16 @@ static void RenderWindow(void *data, uint32_t cx, uint32_t cy)
 
 /* --------------------------------------------------- */
 
-int WINAPI WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine,
-		   int numCmd)
+int WINAPI WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine, int numCmd)
 {
 	HWND hwnd = NULL;
 	base_set_log_handler(do_log, nullptr);
 
 	try {
 		hwnd = CreateTestWindow(instance);
-		if (!hwnd)
+		if (!hwnd) {
 			throw "Couldn't create main window";
+		}
 
 		/* ------------------------------------------------------ */
 		/* create OBS */
@@ -180,24 +181,25 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR cmdLine,
 
 		/* ------------------------------------------------------ */
 		/* create source */
-		SourceContext source = obs_source_create(
-			"random", "some randon source", NULL, nullptr);
-		if (!source)
+		SourceContext source = obs_source_create("random", "some randon source", NULL, nullptr);
+		if (!source) {
 			throw "Couldn't create random test source";
+		}
 
 		/* ------------------------------------------------------ */
 		/* create filter */
-		SourceContext filter = obs_source_create(
-			"test_filter", "a nice green filter", NULL, nullptr);
-		if (!filter)
+		SourceContext filter = obs_source_create("test_filter", "a nice green filter", NULL, nullptr);
+		if (!filter) {
 			throw "Couldn't create test filter";
+		}
 		obs_source_filter_add(source, filter);
 
 		/* ------------------------------------------------------ */
 		/* create scene and add source to scene (twice) */
 		SceneContext scene = obs_scene_create("test scene");
-		if (!scene)
+		if (!scene) {
 			throw "Couldn't create scene";
+		}
 
 		AddTestItems(scene, source);
 

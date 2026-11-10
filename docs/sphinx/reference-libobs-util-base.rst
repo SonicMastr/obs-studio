@@ -39,7 +39,7 @@ Logging Levels
 Logging Functions
 -----------------
 
-.. type:: typedef void (*log_handler_t)(int lvl, const char *msg, va_list args, void *p)
+.. type:: void (*log_handler_t)(int lvl, const char *msg, va_list args, void *p)
 
    Logging callback.
 
@@ -55,6 +55,7 @@ Logging Functions
 .. function:: void base_set_crash_handler(void (*handler)(const char *, va_list, void *), void *param)
 
    Sets the current crash handler.
+   This may only be set once.
 
 ---------------------
 

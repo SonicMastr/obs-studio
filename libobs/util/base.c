@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013 Hugh Bailey <obs.jim@gmail.com>
+ * Copyright (c) 2023 Lain Bailey <lain@obsproject.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,57 +19,42 @@
 
 #include "c99defs.h"
 #include "base.h"
-
-#ifdef _DEBUG
-static int log_output_level = LOG_DEBUG;
-#else
-static int log_output_level = LOG_INFO;
-#endif
+#include "threading.h"
 
 static int crashing = 0;
 static void *log_param = NULL;
 static void *crash_param = NULL;
 
-static void def_log_handler(int log_level, const char *format, va_list args,
-			    void *param)
+static void def_log_handler(int log_level, const char *format, va_list args, void *param)
 {
-	char out[4096];
+	char out[8192];
 	vsnprintf(out, sizeof(out), format, args);
 
-	if (log_level <= log_output_level) {
-		switch (log_level) {
-		case LOG_DEBUG:
-			fprintf(stdout, "debug: %s\n", out);
-			fflush(stdout);
-			break;
+	switch (log_level) {
+	case LOG_DEBUG:
+		fprintf(stdout, "debug: %s\n", out);
+		fflush(stdout);
+		break;
 
-		case LOG_INFO:
-			fprintf(stdout, "info: %s\n", out);
-			fflush(stdout);
-			break;
+	case LOG_INFO:
+		fprintf(stdout, "info: %s\n", out);
+		fflush(stdout);
+		break;
 
-		case LOG_WARNING:
-			fprintf(stdout, "warning: %s\n", out);
-			fflush(stdout);
-			break;
+	case LOG_WARNING:
+		fprintf(stdout, "warning: %s\n", out);
+		fflush(stdout);
+		break;
 
-		case LOG_ERROR:
-			fprintf(stderr, "error: %s\n", out);
-			fflush(stderr);
-		}
+	case LOG_ERROR:
+		fprintf(stderr, "error: %s\n", out);
+		fflush(stderr);
 	}
 
 	UNUSED_PARAMETER(param);
 }
 
-#ifdef _MSC_VER
-#define NORETURN __declspec(noreturn)
-#else
-#define NORETURN __attribute__((noreturn))
-#endif
-
-NORETURN static void def_crash_handler(const char *format, va_list args,
-				       void *param)
+OBS_NORETURN static void def_crash_handler(const char *format, va_list args, void *param)
 {
 	vfprintf(stderr, format, args);
 	exit(0);
@@ -97,14 +82,20 @@ void base_set_log_handler(log_handler_t handler, void *param)
 	log_handler = handler;
 }
 
-void base_set_crash_handler(void (*handler)(const char *, va_list, void *),
-			    void *param)
+void base_set_crash_handler(void (*handler)(const char *, va_list, void *), void *param)
 {
+	static bool non_default_handler_set = false;
+
+	if (os_atomic_exchange_bool(&non_default_handler_set, true)) {
+		blog(LOG_WARNING, "Tried to set a crash handler when one already exists.");
+		return;
+	}
+
 	crash_param = param;
 	crash_handler = handler;
 }
 
-void bcrash(const char *format, ...)
+OBS_NORETURN void bcrash(const char *format, ...)
 {
 	va_list args;
 
@@ -117,6 +108,7 @@ void bcrash(const char *format, ...)
 	va_start(args, format);
 	crash_handler(format, args, crash_param);
 	va_end(args);
+	exit(0);
 }
 
 void blogva(int log_level, const char *format, va_list args)

@@ -1,5 +1,5 @@
 /******************************************************************************
-    Copyright (C) 2016 by Hugh Bailey <obs.jim@gmail.com>
+    Copyright (C) 2023 by Lain Bailey <lain@obsproject.com>
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -27,19 +27,17 @@ void gs_vertex_buffer::Rebuild()
 void gs_index_buffer::Rebuild(ID3D11Device *dev)
 {
 	HRESULT hr = dev->CreateBuffer(&bd, &srd, &indexBuffer);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
 		throw HRError("Failed to create buffer", hr);
+	}
 }
 
 void gs_texture_2d::RebuildSharedTextureFallback()
 {
 	static const gs_color_format format = GS_BGRA;
-	static const DXGI_FORMAT dxgi_format_resource =
-		ConvertGSTextureFormatResource(format);
-	static const DXGI_FORMAT dxgi_format_view =
-		ConvertGSTextureFormatView(format);
-	static const DXGI_FORMAT dxgi_format_view_linear =
-		ConvertGSTextureFormatViewLinear(format);
+	static const DXGI_FORMAT dxgi_format_resource = ConvertGSTextureFormatResource(format);
+	static const DXGI_FORMAT dxgi_format_view = ConvertGSTextureFormatView(format);
+	static const DXGI_FORMAT dxgi_format_view_linear = ConvertGSTextureFormatViewLinear(format);
 
 	td = {};
 	td.Width = 2;
@@ -72,164 +70,175 @@ void gs_texture_2d::Rebuild(ID3D11Device *dev)
 {
 	HRESULT hr;
 	if (isShared) {
-		hr = dev->OpenSharedResource((HANDLE)(uintptr_t)sharedHandle,
-					     __uuidof(ID3D11Texture2D),
+		hr = dev->OpenSharedResource((HANDLE)(uintptr_t)sharedHandle, __uuidof(ID3D11Texture2D),
 					     (void **)&texture);
 		if (FAILED(hr)) {
-			blog(LOG_WARNING,
-			     "Failed to rebuild shared texture: ", "0x%08lX",
-			     hr);
+			blog(LOG_WARNING, "Failed to rebuild shared texture: 0x%08lX", hr);
 			RebuildSharedTextureFallback();
 		}
 	}
 
 	if (!isShared) {
-		hr = dev->CreateTexture2D(
-			&td, data.size() ? srd.data() : nullptr, &texture);
-		if (FAILED(hr))
+		hr = dev->CreateTexture2D(&td, data.size() ? srd.data() : nullptr, &texture);
+		if (FAILED(hr)) {
 			throw HRError("Failed to create 2D texture", hr);
+		}
 	}
 
 	hr = dev->CreateShaderResourceView(texture, &viewDesc, &shaderRes);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
 		throw HRError("Failed to create SRV", hr);
+	}
 
 	if (viewDesc.Format == viewDescLinear.Format) {
 		shaderResLinear = shaderRes;
 	} else {
-		hr = dev->CreateShaderResourceView(texture, &viewDescLinear,
-						   &shaderResLinear);
-		if (FAILED(hr))
+		hr = dev->CreateShaderResourceView(texture, &viewDescLinear, &shaderResLinear);
+		if (FAILED(hr)) {
 			throw HRError("Failed to create linear SRV", hr);
+		}
 	}
 
-	if (isRenderTarget)
+	if (isRenderTarget) {
 		InitRenderTargets();
+	}
 
 	if (isGDICompatible) {
-		hr = texture->QueryInterface(__uuidof(IDXGISurface1),
-					     (void **)&gdiSurface);
-		if (FAILED(hr))
+		hr = texture->QueryInterface(__uuidof(IDXGISurface1), (void **)&gdiSurface);
+		if (FAILED(hr)) {
 			throw HRError("Failed to create GDI surface", hr);
+		}
 	}
 
 	acquired = false;
 
 	if ((td.MiscFlags & D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX) != 0) {
 		ComQIPtr<IDXGIResource> dxgi_res(texture);
-		if (dxgi_res)
+		if (dxgi_res) {
 			GetSharedHandle(dxgi_res);
+		}
 		device_texture_acquire_sync(this, 0, INFINITE);
 	}
 }
 
-void gs_texture_2d::RebuildNV12_Y(ID3D11Device *dev)
+void gs_texture_2d::RebuildPaired_Y(ID3D11Device *dev)
 {
-	gs_texture_2d *tex_uv = pairedNV12texture;
+	gs_texture_2d *tex_uv = pairedTexture;
 	HRESULT hr;
 
 	hr = dev->CreateTexture2D(&td, nullptr, &texture);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
 		throw HRError("Failed to create 2D texture", hr);
+	}
 
 	hr = dev->CreateShaderResourceView(texture, &viewDesc, &shaderRes);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
 		throw HRError("Failed to create Y SRV", hr);
+	}
 
 	if (viewDesc.Format == viewDescLinear.Format) {
 		shaderResLinear = shaderRes;
 	} else {
-		hr = dev->CreateShaderResourceView(texture, &viewDescLinear,
-						   &shaderResLinear);
-		if (FAILED(hr))
+		hr = dev->CreateShaderResourceView(texture, &viewDescLinear, &shaderResLinear);
+		if (FAILED(hr)) {
 			throw HRError("Failed to create linear Y SRV", hr);
+		}
 	}
 
-	if (isRenderTarget)
+	if (isRenderTarget) {
 		InitRenderTargets();
+	}
 
-	tex_uv->RebuildNV12_UV(dev);
+	tex_uv->RebuildPaired_UV(dev);
 
 	acquired = false;
 
 	if ((td.MiscFlags & D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX) != 0) {
 		ComQIPtr<IDXGIResource> dxgi_res(texture);
-		if (dxgi_res)
+		if (dxgi_res) {
 			GetSharedHandle(dxgi_res);
+		}
 		device_texture_acquire_sync(this, 0, INFINITE);
 	}
 }
 
-void gs_texture_2d::RebuildNV12_UV(ID3D11Device *dev)
+void gs_texture_2d::RebuildPaired_UV(ID3D11Device *dev)
 {
-	gs_texture_2d *tex_y = pairedNV12texture;
+	gs_texture_2d *tex_y = pairedTexture;
 	HRESULT hr;
 
 	texture = tex_y->texture;
 
 	hr = dev->CreateShaderResourceView(texture, &viewDesc, &shaderRes);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
 		throw HRError("Failed to create UV SRV", hr);
+	}
 
 	if (viewDesc.Format == viewDescLinear.Format) {
 		shaderResLinear = shaderRes;
 	} else {
-		hr = dev->CreateShaderResourceView(texture, &viewDescLinear,
-						   &shaderResLinear);
-		if (FAILED(hr))
+		hr = dev->CreateShaderResourceView(texture, &viewDescLinear, &shaderResLinear);
+		if (FAILED(hr)) {
 			throw HRError("Failed to create linear UV SRV", hr);
+		}
 	}
 
-	if (isRenderTarget)
+	if (isRenderTarget) {
 		InitRenderTargets();
+	}
 }
 
 void gs_zstencil_buffer::Rebuild(ID3D11Device *dev)
 {
 	HRESULT hr;
 	hr = dev->CreateTexture2D(&td, nullptr, &texture);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
 		throw HRError("Failed to create depth stencil texture", hr);
+	}
 
 	hr = dev->CreateDepthStencilView(texture, &dsvd, &view);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
 		throw HRError("Failed to create depth stencil view", hr);
+	}
 }
 
 void gs_stage_surface::Rebuild(ID3D11Device *dev)
 {
 	HRESULT hr = dev->CreateTexture2D(&td, nullptr, &texture);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
 		throw HRError("Failed to create staging surface", hr);
+	}
 }
 
 void gs_sampler_state::Rebuild(ID3D11Device *dev)
 {
 	HRESULT hr = dev->CreateSamplerState(&sd, state.Assign());
-	if (FAILED(hr))
+	if (FAILED(hr)) {
 		throw HRError("Failed to create sampler state", hr);
+	}
 }
 
 void gs_vertex_shader::Rebuild(ID3D11Device *dev)
 {
 	HRESULT hr;
-	hr = dev->CreateVertexShader(data.data(), data.size(), nullptr,
-				     &shader);
-	if (FAILED(hr))
+	hr = dev->CreateVertexShader(data.data(), data.size(), nullptr, &shader);
+	if (FAILED(hr)) {
 		throw HRError("Failed to create vertex shader", hr);
+	}
 
 	const UINT layoutSize = (UINT)layoutData.size();
 	if (layoutSize > 0) {
-		hr = dev->CreateInputLayout(layoutData.data(), layoutSize,
-					    data.data(), data.size(), &layout);
-		if (FAILED(hr))
+		hr = dev->CreateInputLayout(layoutData.data(), layoutSize, data.data(), data.size(), &layout);
+		if (FAILED(hr)) {
 			throw HRError("Failed to create input layout", hr);
+		}
 	}
 
 	if (constantSize) {
 		hr = dev->CreateBuffer(&bd, NULL, &constants);
-		if (FAILED(hr))
+		if (FAILED(hr)) {
 			throw HRError("Failed to create constant buffer", hr);
+		}
 	}
 
 	for (gs_shader_param &param : params) {
@@ -244,13 +253,15 @@ void gs_pixel_shader::Rebuild(ID3D11Device *dev)
 	HRESULT hr;
 
 	hr = dev->CreatePixelShader(data.data(), data.size(), nullptr, &shader);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
 		throw HRError("Failed to create pixel shader", hr);
+	}
 
 	if (constantSize) {
 		hr = dev->CreateBuffer(&bd, NULL, &constants);
-		if (FAILED(hr))
+		if (FAILED(hr)) {
 			throw HRError("Failed to create constant buffer", hr);
+		}
 	}
 
 	for (gs_shader_param &param : params) {
@@ -263,8 +274,9 @@ void gs_pixel_shader::Rebuild(ID3D11Device *dev)
 void gs_swap_chain::Rebuild(ID3D11Device *dev)
 {
 	HRESULT hr = device->factory->CreateSwapChain(dev, &swapDesc, &swap);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
 		throw HRError("Failed to create swap chain", hr);
+	}
 	Init();
 }
 
@@ -274,11 +286,13 @@ void gs_timer::Rebuild(ID3D11Device *dev)
 	desc.Query = D3D11_QUERY_TIMESTAMP;
 	desc.MiscFlags = 0;
 	HRESULT hr = dev->CreateQuery(&desc, &query_begin);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
 		throw HRError("Failed to create timer", hr);
+	}
 	hr = dev->CreateQuery(&desc, &query_end);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
 		throw HRError("Failed to create timer", hr);
+	}
 }
 
 void gs_timer_range::Rebuild(ID3D11Device *dev)
@@ -287,19 +301,17 @@ void gs_timer_range::Rebuild(ID3D11Device *dev)
 	desc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
 	desc.MiscFlags = 0;
 	HRESULT hr = dev->CreateQuery(&desc, &query_disjoint);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
 		throw HRError("Failed to create timer", hr);
+	}
 }
 
 void gs_texture_3d::RebuildSharedTextureFallback()
 {
 	static const gs_color_format format = GS_BGRA;
-	static const DXGI_FORMAT dxgi_format_resource =
-		ConvertGSTextureFormatResource(format);
-	static const DXGI_FORMAT dxgi_format_view =
-		ConvertGSTextureFormatView(format);
-	static const DXGI_FORMAT dxgi_format_view_linear =
-		ConvertGSTextureFormatViewLinear(format);
+	static const DXGI_FORMAT dxgi_format_resource = ConvertGSTextureFormatResource(format);
+	static const DXGI_FORMAT dxgi_format_view = ConvertGSTextureFormatView(format);
+	static const DXGI_FORMAT dxgi_format_view_linear = ConvertGSTextureFormatViewLinear(format);
 
 	td = {};
 	td.Width = 2;
@@ -333,43 +345,42 @@ void gs_texture_3d::Rebuild(ID3D11Device *dev)
 {
 	HRESULT hr;
 	if (isShared) {
-		hr = dev->OpenSharedResource((HANDLE)(uintptr_t)sharedHandle,
-					     __uuidof(ID3D11Texture3D),
+		hr = dev->OpenSharedResource((HANDLE)(uintptr_t)sharedHandle, __uuidof(ID3D11Texture3D),
 					     (void **)&texture);
 		if (FAILED(hr)) {
-			blog(LOG_WARNING,
-			     "Failed to rebuild shared texture: ", "0x%08lX",
-			     hr);
+			blog(LOG_WARNING, "Failed to rebuild shared texture: 0x%08lX", hr);
 			RebuildSharedTextureFallback();
 		}
 	}
 
 	if (!isShared) {
-		hr = dev->CreateTexture3D(
-			&td, data.size() ? srd.data() : nullptr, &texture);
-		if (FAILED(hr))
+		hr = dev->CreateTexture3D(&td, data.size() ? srd.data() : nullptr, &texture);
+		if (FAILED(hr)) {
 			throw HRError("Failed to create 3D texture", hr);
+		}
 	}
 
 	hr = dev->CreateShaderResourceView(texture, &viewDesc, &shaderRes);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
 		throw HRError("Failed to create 3D SRV", hr);
+	}
 
 	if (viewDesc.Format == viewDescLinear.Format) {
 		shaderResLinear = shaderRes;
 	} else {
-		hr = dev->CreateShaderResourceView(texture, &viewDescLinear,
-						   &shaderResLinear);
-		if (FAILED(hr))
+		hr = dev->CreateShaderResourceView(texture, &viewDescLinear, &shaderResLinear);
+		if (FAILED(hr)) {
 			throw HRError("Failed to create linear 3D SRV", hr);
+		}
 	}
 
 	acquired = false;
 
 	if ((td.MiscFlags & D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX) != 0) {
 		ComQIPtr<IDXGIResource> dxgi_res(texture);
-		if (dxgi_res)
+		if (dxgi_res) {
 			GetSharedHandle(dxgi_res);
+		}
 		device_texture_acquire_sync(this, 0, INFINITE);
 	}
 }
@@ -377,22 +388,25 @@ void gs_texture_3d::Rebuild(ID3D11Device *dev)
 void SavedBlendState::Rebuild(ID3D11Device *dev)
 {
 	HRESULT hr = dev->CreateBlendState(&bd, &state);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
 		throw HRError("Failed to create blend state", hr);
+	}
 }
 
 void SavedZStencilState::Rebuild(ID3D11Device *dev)
 {
 	HRESULT hr = dev->CreateDepthStencilState(&dsd, &state);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
 		throw HRError("Failed to create depth stencil state", hr);
+	}
 }
 
 void SavedRasterState::Rebuild(ID3D11Device *dev)
 {
 	HRESULT hr = dev->CreateRasterizerState(&rd, &state);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
 		throw HRError("Failed to create rasterizer state", hr);
+	}
 }
 
 const static D3D_FEATURE_LEVEL featureLevels[] = {
@@ -410,8 +424,9 @@ try {
 
 	/* ----------------------------------------------------------------- */
 
-	for (gs_device_loss &callback : loss_callbacks)
+	for (gs_device_loss &callback : loss_callbacks) {
 		callback.device_loss_release(callback.data);
+	}
 
 	gs_obj *obj = first_obj;
 
@@ -461,12 +476,15 @@ try {
 		obj = obj->next;
 	}
 
-	for (auto &state : zstencilStates)
+	for (auto &state : zstencilStates) {
 		state.Release();
-	for (auto &state : rasterStates)
+	}
+	for (auto &state : rasterStates) {
 		state.Release();
-	for (auto &state : blendStates)
+	}
+	for (auto &state : blendStates) {
 		state.Release();
+	}
 
 	context->ClearState();
 	context->Flush();
@@ -482,13 +500,12 @@ try {
 	InitAdapter(adpIdx);
 
 	uint32_t createFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
-	hr = D3D11CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr,
-			       createFlags, featureLevels,
-			       sizeof(featureLevels) /
-				       sizeof(D3D_FEATURE_LEVEL),
-			       D3D11_SDK_VERSION, &device, nullptr, &context);
-	if (FAILED(hr))
+	hr = D3D11CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr, createFlags, featureLevels,
+			       sizeof(featureLevels) / sizeof(D3D_FEATURE_LEVEL), D3D11_SDK_VERSION, &device, nullptr,
+			       &context);
+	if (FAILED(hr)) {
 		throw HRError("Failed to create device", hr);
+	}
 
 	dev = device;
 
@@ -503,10 +520,10 @@ try {
 			break;
 		case gs_type::gs_texture_2d: {
 			gs_texture_2d *tex = (gs_texture_2d *)obj;
-			if (!tex->nv12) {
+			if (!tex->pairedTexture) {
 				tex->Rebuild(dev);
 			} else if (!tex->chroma) {
-				tex->RebuildNV12_Y(dev);
+				tex->RebuildPaired_Y(dev);
 			}
 		} break;
 		case gs_type::gs_zstencil_buffer:
@@ -558,6 +575,8 @@ try {
 	curVertexShader = nullptr;
 	curPixelShader = nullptr;
 	curSwapChain = nullptr;
+	lastVertexBuffer = nullptr;
+	lastVertexShader = nullptr;
 	zstencilStateChanged = true;
 	rasterStateChanged = true;
 	blendStateChanged = true;
@@ -566,15 +585,19 @@ try {
 	curBlendState = nullptr;
 	curToplogy = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
 
-	for (auto &state : zstencilStates)
+	for (auto &state : zstencilStates) {
 		state.Rebuild(dev);
-	for (auto &state : rasterStates)
+	}
+	for (auto &state : rasterStates) {
 		state.Rebuild(dev);
-	for (auto &state : blendStates)
+	}
+	for (auto &state : blendStates) {
 		state.Rebuild(dev);
+	}
 
-	for (gs_device_loss &callback : loss_callbacks)
+	for (gs_device_loss &callback : loss_callbacks) {
 		callback.device_loss_rebuild(device.Get(), callback.data);
+	}
 
 } catch (const char *error) {
 	bcrash("Failed to recreate D3D11: %s", error);

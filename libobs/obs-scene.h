@@ -1,5 +1,5 @@
 /******************************************************************************
-    Copyright (C) 2013 by Hugh Bailey <obs.jim@gmail.com>
+    Copyright (C) 2023 by Lain Bailey <lain@obsproject.com>
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -32,6 +32,7 @@ struct obs_scene_item {
 	volatile bool removed;
 
 	bool is_group;
+	bool is_scene;
 	bool update_transform;
 	bool update_group_resize;
 
@@ -50,8 +51,10 @@ struct obs_scene_item {
 	gs_texrender_t *item_render;
 	struct obs_sceneitem_crop crop;
 
+	bool absolute_coordinates;
 	struct vec2 pos;
 	struct vec2 scale;
+	struct vec2 scale_ref;
 	float rot;
 	uint32_t align;
 
@@ -63,6 +66,9 @@ struct obs_scene_item {
 	struct vec2 output_scale;
 	enum obs_scale_type scale_filter;
 
+	enum obs_blending_method blend_method;
+	enum obs_blending_type blend_type;
+
 	struct matrix4 box_transform;
 	struct vec2 box_scale;
 	struct matrix4 draw_transform;
@@ -70,6 +76,8 @@ struct obs_scene_item {
 	enum obs_bounds_type bounds_type;
 	uint32_t bounds_align;
 	struct vec2 bounds;
+	bool crop_to_bounds;
+	struct obs_sceneitem_crop bounds_crop;
 
 	obs_hotkey_pair_id toggle_visibility;
 
@@ -95,6 +103,10 @@ struct obs_scene {
 	bool custom_size;
 	uint32_t cx;
 	uint32_t cy;
+
+	bool absolute_coordinates;
+	uint32_t last_width;
+	uint32_t last_height;
 
 	int64_t id_counter;
 
